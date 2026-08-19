@@ -1,0 +1,6 @@
+{
+  "name": "gocr",
+  "description": "Graph-Oriented Code Review — claim-based review artifacts with a hard coverage gate and an interactive slide-deck report",
+  "version": "0.1.0",
+  "author": { "name": "Charles Lobo" }
+}

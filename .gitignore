@@ -1,2 +1,4 @@
 .*
 !.gitignore
+!.claude-plugin
+__pycache__/
