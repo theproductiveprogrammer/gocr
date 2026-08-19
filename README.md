@@ -63,12 +63,17 @@ claims, and open questions."*
 
 ## The rules that make it trustworthy
 
-1. The code's author never authors the claims.
+1. The review is blind to its author. The triggering session — usually
+   the agent that wrote the code — hands only the pinned shas to a
+   fresh Conductor agent and never sees inside the pipeline: it cannot
+   steer the reading and cannot editorialize the result.
 2. The coverage gate must pass — unclaimed changes fail loudly.
 3. Evidence is declarative recipes (line ranges and grep pipelines
    over pinned shas) — resolved live, never cached.
 4. Verdicts belong to the human.
 
-The full spec lives in [skills/gocr/SKILL.md](skills/gocr/SKILL.md);
+The hand-off protocol lives in
+[skills/gocr/SKILL.md](skills/gocr/SKILL.md); the pipeline the
+Conductor runs in [skills/gocr/CONDUCTOR.md](skills/gocr/CONDUCTOR.md);
 the report's visual language in
 [skills/gocr/report/DESIGN.md](skills/gocr/report/DESIGN.md).

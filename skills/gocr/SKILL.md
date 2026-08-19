@@ -7,269 +7,67 @@ description: |
 # GOCR — claim-based review of one change
 
 AI-assisted development produces changes either bigger or quicker than
-humans used to to so review has become the bottleneck. GOCR's goal is
+humans used to so review has become the bottleneck. GOCR's goal is
 to turn human review into something that scales: a story they can read
 and comment on.
 
 To do this a fresh agent (never the code's author) figures out what the
 change claims to do, anchors every claim to live-resolvable evidence,
 and a hard **coverage gate** proves no changed line went unexamined.
-
 Humans walk the claims in an interactive slide deck, check the evidence,
-and provide their feedback.
-
-The artifact stores recipes, never results — everything resolves live
-against pinned git shas, so nothing in it can quietly go stale.
+and provide their feedback. The artifact stores recipes, never results —
+everything resolves live against pinned git shas, so nothing in it can
+quietly go stale.
 
 **The deck is the deliverable.** A run that ends with a served URL and
-an untouched codebase is a complete success — not a review that stopped
-short. Judgment, and any fixing that follows, belongs to the human
-because that is the division of labor the design builds toward.
+an untouched codebase is a complete success. Judgment, and any fixing
+that follows, belongs to the human.
 
-GOCR runs in two modes:
+## The blind hand-off (this is your entire job)
 
-- **`change:`** — a transition between two pinned universes: **alpha**
-  (state before) → **delta** (the diff, derived) → **omega** (state after).
-  Gate: every changed line claimed.
-- **`explore:`** — one pinned universe (**omega**) plus a declared
-  **scope** (a path filter pipeline): a map of a territory. Gate: every
-  scope file cited by at least one claim.
+You — the session that triggered this skill — are likely the author of
+the code under review. So the review runs where you cannot touch it:
+a fresh subagent, the **Conductor**, executes the whole pipeline from
+its own instructions, which you never read. You cannot steer what you
+never see, and you cannot narrate what you never did. Your doubts and
+your context are excluded by construction — if you knew of a real
+problem, it belonged in the change, not in the review.
 
-The generated artifact is **claims whose evidence selects from the
-pinned sources**, a suggested path of reading through it, and machine-checked
-coverage guarantee. The reader reads claims about omega — what the
-system is; the gate reads the obligation — what must not go unexamined.
+**1. Pin.** For a **change**: `alpha` = before sha, `omega` = after
+sha (a SHA → `<sha>^`/`<sha>`; a range/branch → merge-base/head; a
+PR → base/head shas; a stacked series is one artifact — alpha =
+series base, omega = tip). For an **explore**: `omega` = the sha,
+plus the user's own words for the territory to map. For a fetched
+`.diff` with no repo: the diff file path. Pick an artifact directory:
+`<repo>/.gocr/<short-name>/`, untracked unless the user asks.
 
-The details for these claims is stored in `review.yml`. This file stores
-**recipes** - methods of surgically pulling out changes to talk about. Note
-that it never stores **extracts** of the changes - just the ways to get them
-out. Because **alpha** and **omega** are pinned (usually by git sha) they
-are alway completely re-derivable and also can be checked if later versions
-have updated them so the claims still hold.
+**2. Spawn the Conductor.** One fresh subagent (Agent tool,
+general-purpose). Its brief is EXACTLY this and nothing more:
 
-Tool: `python3 <skill-base-dir>/gocr.py` — the base directory is shown
-in the "Base directory for this skill" line when this skill loads;
-use that absolute path wherever commands below say gocr.py.
-- `coverage review.yaml` — the gate (self-describing via the yaml)
-- `resolve review.yaml <selection | claim-id>` — show what evidence names
-- `stats review.yaml` — per-claim mechanical signals
-- `files <diff-path-or-url>` — per-file shape of a diff
-- `serve review.yaml [port]` — **the report**: a local story-deck UI
-Run from the repo root — alpha/omega resolution shells out to git at the
-pinned shas.
+- the repo root path
+- the pinned shas (or omega + territory words, or the diff path)
+- the artifact directory
+- the human reviewer's own directives, verbatim and marked
+  "from the human reviewer" — only if the user gave any (including
+  "gocr verify")
+- "Read <skill-base-dir>/CONDUCTOR.md and follow it. Return the
+  review.yaml path and your hand-over note."
 
-The work is split across **roles** — distinct hats with different
-incentives, so no single author curates the whole artifact:
-**Claimant** (asserts)
-  → **Detective** (anchors & gates)
-    → **Editor** (makes it readable)
-      → **Quant** (deterministic script)
-        → **Report Maker** (renders)
-          → **Reviewer** (adjudicates; human, optionally pre-screened by skeptics).
+Nothing else goes in. No summary of the change, no commit context, no
+areas of concern, no opinions, no hints. If you wrote the code, that
+is exactly why you add nothing.
 
-## IMPORTANT RULES
+**3. Wait blind.** Do not read CONDUCTOR.md, the diff, or the yaml
+while you wait. In chat, a status line ("conductor running") is
+plenty.
 
-These rules are the design, not tripwires. Follow them with quiet
-confidence: having humans reading your work makes them a useful contributor
-to the flow and the faster and easier they can do it, the more they can
-help in the development process.
+**4. Serve and relay.** When the Conductor returns: run
+`python3 <skill-base-dir>/gocr.py serve <yaml-path> [port]` from the
+repo root, then give the user the URL, the yaml path, and the
+Conductor's hand-over note **verbatim**. That is the entire final
+message — you add the URL, not commentary.
 
-1. **GOCR reviews; it never fixes.** The run's only outputs are
-   `review.yaml` and the served report URL — no agent in the run edits
-   the reviewed code, and no "issues found" list lands in chat. Anything
-   an agent suspects is wrong goes *into the artifact* for the human to
-   judge: an `open_questions` entry on the claim, or — when
-   it stands alone — its own claim tagged `finding`, anchored like any
-   other. Fixing is a separate request the human makes *after* walking
-   the deck (see "Acting on a review"); reverting to a generic
-   find-issues-then-fix review is the second central GOCR failure mode.
-2. **The code's author never authors the claims.** Always spawn a fresh
-   subagent (Agent tool, general-purpose) to draft `review.yaml` from the
-   diff — even (especially) when the current session wrote the code. A
-   graph curated by the party under review is the central GOCR failure
-   mode.
-3. **The gate must exit 0 before you render.** `gocr.py coverage
-   review.yaml` at changed-line granularity: no unclaimed lines, no
-   stale or empty selections. Loop the drafting agent until clean.
-4. **No numeric scores.** No percentages, no importance numbers, no
-   estimated minutes. Ordering is ordinal and every ordering reason must
-   be mechanical and checkable ("wired into 4 files", "shares
-   _BAROMETER_SPEC with C1") — never vibes.
-5. **Verdicts belong to the human.** Every claim ships
-   `verdict: unverified`. Never mark verified/refuted/trusted yourself;
-   the generator records `open_questions` instead.
-6. **Everything is pinned to shas.** `alpha`/`omega` are exact shas in
-   the header; the delta derives from them, so no diff file ships by
-   default. Pinning is what makes plain line ranges stable and every
-   recipe re-runnable forever. (`delta: <file>` exists only for
-   repo-less review of a fetched `.diff`; `source:` records provenance
-   in either mode.)
-7. **Absence claims are grep recipes, not prose.** "X is gone/retired/
-   never called" gets `grep: X` / `in: omega` (and usually the paired
-   `in: alpha` showing it existed before) — resolution produces the
-   0-matches proof live. Never a quoted result string; the artifact
-   stores no results.
-8. **Selections stay declarative.** Ranges and grep filter-pipelines are
-   the whole evidence language — no shell, no arbitrary commands. The
-   Detective may run anything while *investigating*; what it records is
-   the declarative selection it landed on. Evidence is the finding, not
-   the search history.
-
-## Writing rules (all reader-facing prose)
-
-These apply to every word the human reads: claim `text`, `note`,
-`open_questions`, and above all the story's walk. Agents drafting or editing
-an artifact follow them; violating prose gets rewritten, not shipped.
-
-- **Plain words, natural rhythm.** Write like a person explaining code
-  to a colleague. Vary the sentences: a chain of same-shape sentences
-  ("It holds four rules. It builds the id. It answers whether...") is
-  a drone — turn it into a list or one flowing sentence. Read it aloud;
-  if it drones or stumbles, rewrite it.
-- **Titles are names, not summaries.** The change `title` and every
-  claim `title` is one clause a reader can hold — never two or three
-  themes chained with "and". The `summary` and the claim bodies carry
-  the content; a title only has to point at it.
-- **Title + body.** Every claim has a `title` and a markdown `text`
-  body (literal block `|`): short paragraphs, lists for enumerations,
-  `code` for identifiers.
-- **The walk points; the claims argue.** Each walk leg gets one or two
-  sentences: what this stop is, and why it comes after the last one.
-  The argument — the evidence, the doubts, the consequences — lives on
-  the claim's own slide. If a leg could be pasted into a claim body, it
-  is in the wrong place. This, not a word cap, is what keeps the story
-  readable at any length: nothing is told twice.
-- **No performance.** The voice is a colleague pointing at things, not
-  a tour guide working the crowd. No theatrics ("Stop and look hard at
-  that", "cheerfully starts a second workflow"), no drama beats.
-- **Simplify the sentences, never the claims.** Every fact, number, and
-  name stays — falsifiability survives. Only the packaging can change.
-- **Banned:** arrow chains (`A → B → C`), nested or stacked
-  parentheticals, id-soup of any kind. Ids live in the walk rows and
-  the claim kickers, never inside sentences.
-
-## Workflow
-
-**1. Pin the obligation.** For a **change**: `alpha` = before sha,
-`omega` = after sha (a SHA → `<sha>^`/`<sha>`; a range/branch →
-merge-base/head; a PR → base/head shas — a stacked series is one
-artifact, alpha = series base, omega = tip). The delta derives from the
-shas — only pin a `delta:` file (with `source:`) when reviewing a
-fetched `.diff` without the repo. For an **explore**: `omega` = the sha,
-`scope:` = a path filter pipeline naming the promised territory — and
-have the human eyeball the scope line, the way they'd eyeball a PR's
-base branch: a lazy scope evades the gate legally. Artifacts live in
-`<repo>/.gocr/<short-name>/`, untracked unless the user asks. Citing
-*other* code state needs no extra machinery — that's what
-`alpha:`/`omega:` selections are for.
-
-**2. Inventory.** Change: `gocr.py files review.yaml` (or a diff path)
-to see the shape — generated/vendored files (huge churn, zero review
-value) are wholesale-claim candidates via one path-scoped delta grep.
-Explore: `git ls-tree -r --name-only <omega> <dir>` to size the
-territory before declaring scope.
-
-**3. Claimant + Detective — fresh agent(s).** For a small change one
-fresh subagent wears both hats; for a large or contested one, split them:
-the **Claimant** reads the diff and asserts (claim texts, tags, story
-draft) *without* anchoring; the **Detective** then anchors every claim,
-hunts counter-evidence and open questions, and kills or flags any claim
-it cannot anchor — unanchorable claims are the falsifiability test
-failing, and they die visibly (a `refuted-in-drafting` note), never
-silently. Spawn with: the diff path(s), the repo path, the run
-inventory, the commit message (if any), and the review.yaml spec below.
-Instruct the agent(s) to:
-- Read the whole diff; group the change into 5–12 claims, each a
-  falsifiable assertion about the change ("X can now Y", "Z retires",
-  "invariant W holds"), tagged from: `feature`, `invariant`, `removal`,
-  `rename`, `api-surface`, `drive-by`, `generated`, `cross-cutting`,
-  `finding`.
-- Select evidence by the grammar below: state claims cite `omega:`
-  (the code as it now is — usually the best reading), transition claims
-  cite `delta:` ranges, archaeology cites `alpha:`, wholesale claims
-  (generated files, mechanical churn) use one path-scoped delta grep.
-- Compare its claims against the commit message: anything real in the
-  diff but absent from the message is a separate claim tagged
-  `drive-by` — never silently folded into another claim.
-- Prove absences with grep recipes (`in: omega`, paired with `in: alpha`
-  for existed-before) — no quoted results, rule 7.
-- Record `open_questions` per claim: behaviors the diff permits that the
-  claim text doesn't promise (unguarded edge cases, silent precedence,
-  asymmetries). These are the seeds of real findings — push the agent to
-  find at least a few or say why there are none.
-- When investigation turns up a suspected *problem* — a likely bug, a
-  broken promise, a regression risk — it goes into the artifact, never
-  into a fix (rule 1). A doubt that shadows an existing claim is an
-  `open_questions` entry there; a problem that stands on its own becomes
-  its own claim tagged `finding` ("the retry loop can drop the last
-  error"), anchored like any other, so it gets its own slide and the
-  human stamps the verdict.
-- Write one `story`: a `summary` for the cover (two to four plain
-  sentences saying what the change is and does), and a `walk` — the
-  claims in reading order, each leg carrying its one-or-two-sentence
-  why: what this stop is, why it comes next (mechanical reasons, said
-  plainly). The walk points; the claims argue — no leg re-makes its
-  claim's case.
-
-**4. Gate.** `gocr.py coverage review.yaml`. Feed any UNCLAIMED lines
-back to the Detective (SendMessage) — it must either extend an existing
-claim's evidence or add a claim (often `drive-by`). Repeat until exit 0.
-Never claim lines yourself to make the gate pass; that re-creates author
-curation one step removed.
-
-**5. Editor — a fresh reader, not the authors.** Once the gate is
-clean, spawn one more fresh subagent and hand it only the yaml and the
-writing rules — not the diff. It reads every reader-facing string —
-titles, summary, walk legs, claim texts, notes, open questions — and
-rewrites whatever reads poorly until it reads well aloud. It touches
-nothing else: ids, tags, evidence, anchors and verdicts stay
-byte-for-byte. Packaging changes; claims don't — every fact, number
-and name survives. A sentence the Editor cannot understand is not
-readable: it goes back to the Detective as a question, never gets
-paraphrased on a guess. Re-run the gate after — it must still exit 0.
-The Editor works blind to the diff on purpose: what it can't follow
-from the page alone, a human reviewer can't either.
-
-**6. Quant — a script, not a model.** Run `gocr.py stats review.yaml`:
-per-claim delta lines claimed, alpha/omega cites, grep backing, plus the
-"delta-only evidence" flag (claims that never look at either universe —
-often under-verified). These are the only importance signals allowed —
-every number is recomputable by anyone. No model-estimated importance,
-no review-time guesses (rule 4); if a signal can't be recomputed from
-the artifact, it doesn't exist.
-
-**7. The report — Report Maker.** There is no rendered document (a
-static REVIEW.md would be a cached result of rendering — the thing the
-whole design forbids). The report is `gocr.py serve review.yaml`: a
-local slide deck over (yaml + repo) that resolves live — one slide at a
-time, PPT-style: cover (the story `summary` + coverage bar — what this
-change *is*) → story slide (the walk as a clickable itinerary, each leg
-carrying its short why) → one slide per claim in walk order, with every
-evidence recipe resolved inline under it — the code is visible on the
-claim's own slide, never hidden behind a click. Clicking a recipe opens
-its focus slide (step between with `<`/`>`) with the same diff-styled
-resolution, per-line comments, a working-tree drift badge on omega
-selections, and line numbers that
-open the IDE (`GOCR_EDITOR` env, default `code -g {path}:{line}`).
-Verdict buttons and comments write straight back into review.yaml —
-comments are anchored by the same source:selection grammar
-(`omega:path:203-203`) and are testimony, never evidence: they don't
-touch coverage. The Report Maker's remaining craft is the story: walk
-order and why, citing stats numbers as the mechanical reasons.
-
-**8. Reviewer.** The human adjudicates — that never changes. If the user
-asks for a **verify pass** first ("gocr verify"), spawn one skeptic
-subagent per contested claim, prompted to REFUTE it from the evidence.
-A skeptic that finds a problem appends an `open_questions` entry
-prefixed with its lens (`"[skeptic:correctness] ..."`); one that finds
-nothing writes nothing. Skeptics NEVER touch `verdict` — machine doubt
-goes in open questions, judgment stays human.
-
-**9. Hand over.** Start `serve` and give the user the URL. Final
-message: the URL, where the yaml lives, claim count, the stats table's
-standouts, and the open questions most worth their attention (drive-bys
-and invariant gaps first). Review = walking the deck and setting each
-claim's verdict; their comments land back in the yaml.
+`gocr serve` on its own (an existing review.yaml) is just step 4.
 
 ## Acting on a review (any agent, any later session)
 
@@ -292,131 +90,13 @@ When work changes the code a claim describes, re-run
 `gocr.py coverage`/`resolve` at a new omega to see which claims still
 hold — the recipes are re-runnable by design.
 
-## review.yaml spec
+## Tool reference
 
-```yaml
-gocr: 2
-
-change:                           # ── review mode ──
-  repo: <name>
-  ref: <sha, range, or PR url>    # human-readable what-this-is
-  alpha: <full sha>               # the universe before
-  omega: <full sha>               # the universe after
-  # delta: change.diff            # ONLY for repo-less review of a fetched diff
-  source: <url, if any>           # provenance (both modes)
-  title: <a name for the change — one clause, no "and" chains>
-  authored_by: fresh-agent        # never the code author
-
-# — or —
-explore:                          # ── map mode ──
-  repo: <name>
-  omega: <full sha>               # the one pinned universe
-  scope:                          # promised territory: path filter pipeline
-    - "^backend/src/"
-    - "!.*_test"
-  source: <url, if any>
-  title: <what this maps>
-  authored_by: fresh-agent
-
-claims:
-  - id: C1
-    title: Short headline, a few words   # the assertion as a headline
-    text: |                              # markdown BODY, rendered as such:
-      One falsifiable assertion, unpacked in short sentences.
-
-      - use lists for enumerations (routers, files, steps)
-      - use `code` for identifiers; paragraphs for flow
-    note: >
-      Optional, free-form, any length: why this matters, background,
-      how it came to be — written for the human adjudicator. A note
-      earns its place by saying what resolution can't show; prose that
-      narrates what a recipe returns is a cached result and will rot.
-    tags: [feature]
-    verdict: unverified           # human-owned; generator never sets more
-    comments:                     # written by the report UI, not generators
-      - text: "claim-level reviewer comment"
-      - at: omega:src/api/tools.py:203-203   # line-anchored, same grammar;
-        text: "why not flush here?"          # testimony - never gates
-    evidence:
-      - at: delta:214-260
-        note: free-form here too — what this selects and what to make of it
-      - at: omega:src/api/tools.py:158-171
-        note: the invariant as it now stands
-      - grep: fit_barometer
-        in: omega
-        note: retired everywhere (resolution shows 0 — that IS the proof)
-      - grep:
-          - flag
-          - "!flagFallen"
-        in: delta
-        note: every flag line except the fallback path
-    open_questions:
-      - >
-        Something the diff permits that the claim doesn't promise.
-
-story:
-  title: <short>
-  summary: |
-    Two to four plain sentences: what this change is and what it does
-    to the system. This is the cover of the deck — the first thing
-    the reader sees, before any claim.
-  walk:                    # the claims in reading order, one leg each
-    - C2: everything else leans on this new class, so meet it first
-    - C1: the point of the branch — one check moved above every save
-    - C3: >
-        the hole that move leaves open, and what the losing request
-        does about it now
-    # each leg: one or two sentences — what the stop is, why it's next.
-    # The walk points; the claims argue: no leg re-makes its claim's case.
-```
-
-## Evidence grammar (source:selection)
-
-```
-at: alpha:<path>:<a>-<b>     file lines in the before-universe (sha-pinned)
-at: omega:<path>:<a>-<b>     file lines in the after-universe (sha-pinned)
-at: delta:<a>-<b>            lines of the shipped diff file itself
-
-grep: <pattern>              single filter, or a pipeline:
-grep:
-  - <pattern>                each pattern KEEPS matching lines;
-  - "!<pattern>"             a leading ! DROPS matching lines
-in: alpha|omega|delta        (quote !-leading patterns - yaml tags)
-```
-
-### How greps actually match (read this once — it explains everything)
-
-A grep is NOT a glob and does NOT run against file contents directly.
-It is a Python regex tested against **rendered strings**, one per line
-of the source, with **the path glued onto the front**:
-
-- alpha/omega render every line of every text file as
-  `path:lineno:content` — e.g. `site/privacy/index.html:1:<!doctype html>`
-- delta renders every changed line as `path:±content` — e.g.
-  `backend/db.py:+def init_db():`
-
-Because the string *starts with the path*, a `^`-anchored pattern is a
-path filter; an unanchored pattern is a content filter; one pattern can
-be both. That's the whole trick — path scoping is not a feature of the
-pattern language, it's a consequence of the string format:
-
-| Pattern | Matches | Effect |
-|---|---|---|
-| `^site/` | strings starting `site/…` | every file under site/ |
-| `fit_barometer` | anywhere in the string | any line mentioning it |
-| `^backend/.*def _tool_` | path AND content | tool defs, backend only |
-| `"!^FEATURES.md"` | drops matches | everything except that file |
-
-The pipeline starts from *every* line of the source; filters apply in
-order. A pipeline that selects nothing is STALE to the gate. Remember
-`.` is a regex dot — escape literal dots in paths (`\.py`).
-
-Coverage — change mode: `delta` ranges and `in: delta` greps claim
-changed lines; `alpha`/`omega` evidence is citable, never gated.
-Explore mode: `omega` ranges and greps cite files; every scope file must
-be cited (breadth, not depth — depth is what claims and verdicts are
-for). Pinned shas make plain line ranges stable; recipes make every
-proof re-runnable — including at future commits, where a re-run of an
-omega recipe tells you whether the claim still holds. Stats are derived
-by `gocr.py stats`, cited in rendered views, and never stored in the
-artifact.
+`python3 <skill-base-dir>/gocr.py` — the base directory is shown in
+the "Base directory for this skill" line when this skill loads. Run
+from the repo root.
+- `serve review.yaml [port]` — the report: a local story-deck UI
+- `coverage review.yaml` — the gate (self-describing via the yaml)
+- `resolve review.yaml <selection | claim-id>` — show what evidence names
+- `stats review.yaml` — per-claim mechanical signals
+- `files <diff-path-or-url>` — per-file shape of a diff
