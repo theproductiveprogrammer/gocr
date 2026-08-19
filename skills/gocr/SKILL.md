@@ -1,27 +1,31 @@
 ---
 name: gocr
-description: Graph-Oriented Code Review — claim-based artifacts (review.yaml + a served interactive story-deck report) in two modes. change mode reviews a commit/branch/PR (evidence as source:selection recipes over pinned alpha/omega shas and their derived delta; gate = every changed line claimed). explore mode maps a codebase territory at one pinned sha (gate = every scope file cited). Use when the user says "gocr", "gocr this commit/branch/PR", "gocr explore <area>", "gocr serve", "generate a claim review", "graph review", "map this subsystem with gocr", or wants a large AI-generated change reviewed by claims instead of by reading the raw diff.
+description: |
+  Graph-Oriented Code Review — generates a interactive story-deck report. It runs in two modes: change mode reviews a commit/branch/PR (gate = every changed line claimed) and explore mode maps a codebase territory at one pinned sha (gate = every scope file cited). Use when the user says "gocr", "gocr this commit/branch/PR", "gocr explore <area>", "gocr serve", "generate a claim review", "graph review", "map this subsystem with gocr", or wants a change reviewed by claims instead of by reading the raw diff.
 ---
 
-# GOCR v2 — claim-based review of one change
+# GOCR — claim-based review of one change
 
-One artifact structure, two obligation modes:
+GOCR runs in two modes:
 
 - **`change:`** — a transition between two pinned universes: **alpha**
-  (sha before) → **delta** (the diff, derived live from the shas) →
-  **omega** (sha after). Gate: every changed line claimed.
+  (state before) → **delta** (the diff, derived) → **omega** (state after).
+  Gate: every changed line claimed.
 - **`explore:`** — one pinned universe (**omega**) plus a declared
   **scope** (a path filter pipeline): a map of a territory. Gate: every
-  scope file cited by at least one claim. Breadth proof, not depth.
+  scope file cited by at least one claim.
 
-Either way the artifact is **claims whose evidence selects from the
-pinned sources**, one suggested reading walk, and the machine-checked
+The generated artifact is **claims whose evidence selects from the
+pinned sources**, a suggested path of reading through it, and machine-checked
 coverage guarantee. The reader reads claims about omega — what the
 system is; the gate reads the obligation — what must not go unexamined.
-The artifact stores **recipes, never results**: even the delta is
-derived (`git diff alpha omega`), and resolution is live, so nothing in
-it can go quietly stale. Re-running an artifact's recipes at a later
-sha tells you whether its claims still hold.
+
+The details for these claims is stored in `review.yml`. This file stores
+**recipes** - methods of surgically pulling out changes to talk about. Note
+that it never stores **extracts** of the changes - just the ways to get them
+out. Because **alpha** and **omega** are pinned (usually by git sha) they
+are alway completely re-derivable and also can be checked if later versions
+have updated them so the claims still hold.
 
 Tool: `python3 <skill-base-dir>/gocr.py` — the base directory is shown
 in the "Base directory for this skill" line when this skill loads;
@@ -36,17 +40,19 @@ pinned shas.
 
 The work is split across **roles** — distinct hats with different
 incentives, so no single author curates the whole artifact:
-**Claimant** (asserts) → **Detective** (anchors & gates) → **Quant**
-(deterministic script, never a model) → **Report Maker** (renders) →
-**Reviewer** (adjudicates; human, optionally pre-screened by skeptics).
+**Claimant** (asserts)
+  → **Detective** (anchors & gates)
+    → **Quant** (deterministic script)
+      → **Report Maker** (renders)
+        → **Reviewer** (adjudicates; human, optionally pre-screened by skeptics).
 
-## Hard rules (each one exists because its absence was a designed failure)
+## IMPORTANT RULES
 
 1. **GOCR reviews; it never fixes.** The run's only outputs are
    `review.yaml` and the served report URL — no agent in the run edits
    the reviewed code, and no "issues found" list lands in chat. Anything
    an agent suspects is wrong goes *into the artifact* for the human to
-   judge: an `open_questions` entry on the claim it shadows, or — when
+   judge: an `open_questions` entry on the claim, or — when
    it stands alone — its own claim tagged `finding`, anchored like any
    other. Fixing is a separate request the human makes *after* walking
    the deck (see "Acting on a review"); reverting to a generic
@@ -90,28 +96,21 @@ These apply to every word the human reads: claim `text`, `note`,
 an artifact follow them; violating prose gets rewritten, not shipped.
 
 - **4th-grade reading level.** Short sentences. One idea per sentence.
-  Plain words wherever a plain word exists.
+  Plain words. Easy and enjoyable to read.
 - **Title + body.** Every claim has a `title` (a few words, the
-  assertion as a headline — this is what renders large) and a markdown
-  `text` body (literal block `|`): short paragraphs, lists for
-  enumerations, `code` for identifiers. Never make a paragraph do a
-  headline's job.
+  assertion as a headline) and a markdown `text` body (literal block `|`):
+  short paragraphs, lists for enumerations, `code` for identifiers.
 - **A story is a story.** It should be easy and enjoyable to read — a
   guided tour, not a compressed dependency dump. Tell the reader what
   they will see at each stop and why the next stop follows naturally.
-  There is no length limit; the enemy is density, not word count. Write
-  it the way Enid Blyton writes an adventure: short paragraphs, one leg
-  of the journey per paragraph, and it reads aloud without stumbling.
-  One wall-of-text paragraph justifying every stop at once is the
-  failure this rule exists to prevent.
+  There is no length limit; the enemy is cleverness and density, not word
+  count. Write it the way Enid Blyton writes an adventure: short paragraphs,
+  one leg of the journey per paragraph, and it reads aloud without stumbling.
 - **Simplify the sentences, never the claims.** Every fact, number, and
-  name stays — falsifiability survives. Only the packaging changes.
+  name stays — falsifiability survives. Only the packaging can change.
 - **Banned:** arrow chains (`A → B → C`), more than one claim id in a
   sentence, nested or stacked parentheticals, id-soup of any kind. The
   walk list already carries the ids; the why names *subjects*, not ids.
-- Rule 4 still holds — reasons stay mechanical, said plainly: "The
-  server checks the clock before it checks who you are. So we read the
-  clock rule first."
 
 ## Workflow
 
