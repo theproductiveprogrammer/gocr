@@ -12,10 +12,15 @@ document.getElementById('theme').onclick = () => {
 let A = null;        // artifact
 let pos = 0;         // 0 = cover, then story slide (if any), then claims
 let walk = [];       // claim objects in story order
+let whys = [];       // per-leg why, parallel to walk
 let ev = null;       // {ci, ei, data} when on an evidence slide
+const resCache = {}; // "claimId:idx" -> resolved evidence, so claim
+                     // slides re-render inline panes without refetching
 
-// first claim's slide position: the story why gets its own slide when present
-const base = () => (A && A.story.why ? 2 : 1);
+// first claim's slide position: the story gets its own slide when it has
+// per-leg whys (or a legacy why essay)
+const base = () =>
+  (A && (whys.some(Boolean) || A.story.why) ? 2 : 1);
 
 const $slide = document.getElementById('slide');
 const esc = (s) => (s ?? '').replace(/[&<>"]/g,
@@ -58,8 +63,12 @@ function mdlite(s) {
 
 async function load() {
   A = await (await fetch('/api/artifact')).json();
-  const order = A.story.walk.length ? A.story.walk : A.claims.map(c => c.id);
-  walk = order.map(id => A.claims.find(c => c.id === id)).filter(Boolean);
+  const legs = A.story.walk.length
+    ? A.story.walk
+    : A.claims.map(c => ({ id: c.id, why: '' }));
+  const found = legs.filter(l => A.claims.some(c => c.id === l.id));
+  walk = found.map(l => A.claims.find(c => c.id === l.id));
+  whys = found.map(l => l.why || '');
   window.addEventListener('popstate', applyPath);
   applyPath();
 }
@@ -128,7 +137,9 @@ function renderTitle() {
       <button onclick="next()">next &gt;</button></div>`;
 }
 
-// flow: serve deck — reader steps past the cover to the tour itinerary
+// flow: serve deck — reader steps past the cover to the tour itinerary.
+// Each leg row is the claim title plus its short why; a legacy why
+// essay (old artifacts) renders above the list instead.
 function renderStory() {
   $slide.className = 'card claim story-slide';
   $slide.innerHTML = `
@@ -136,11 +147,12 @@ function renderStory() {
       <span>2 / ${walk.length + base()}</span></div>
     <div class="body">
       <h2>${esc(A.story.title || 'How to read this deck')}</h2>
-      <div class="claimbody">${mdlite(A.story.why)}</div>
+      ${A.story.why ? `<div class="claimbody">${mdlite(A.story.why)}</div>` : ''}
       <div class="sec">the walk</div>
       <ol class="walklist">${walk.map((c, i) => `
         <li onclick="gotoClaim(${i})">
           <span class="wid">${esc(c.id)}</span>${esc(c.title || c.id)}
+          ${whys[i] ? `<div class="lwhy">${esc(whys[i])}</div>` : ''}
         </li>`).join('')}</ol>
     </div>
     <div class="nav"><button onclick="prev()">&lt;</button>
@@ -172,15 +184,23 @@ function renderClaim() {
       <input class="cmt-in" placeholder="add a comment…"
         onkeydown="if(event.key==='Enter'&&this.value.trim())
           claimComment(this.value.trim())">
+      ${c.open_questions.length ? `<div class="sec">open questions</div>` : ''}
+      ${c.open_questions.map(q => `<div class="oq">${esc(q)}</div>`).join('')}
       <div class="sec">evidence</div>
-      ${c.evidence.map((e, i) => `
-        <div class="ev" onclick="openEvidence(${i})">
+      ${c.evidence.map((e, i) => {
+        const data = resCache[c.id + ':' + i];
+        return `
+        <div class="ev" onclick="openEvidence(${i})" title="open focus view">
           ${e.kind === 'at' ? `at: ${esc(e.raw)}`
             : `grep: ${pipelineChips(e.pipeline)} in: ${esc(e.in)}`}
           ${e.note ? `<div class="n">${esc(e.note)}</div>` : ''}
-        </div>`).join('')}
-      ${c.open_questions.length ? `<div class="sec">open questions</div>` : ''}
-      ${c.open_questions.map(q => `<div class="oq">${esc(q)}</div>`).join('')}
+        </div>
+        <div class="ev-pane" data-ei="${i}">${!data
+          ? '<div class="resolving">resolving…</div>'
+          : data.error
+            ? `<div class="resolving">${esc(data.error)}</div>`
+            : evBody(c, data)}</div>`;
+      }).join('')}
       <div class="sec">verdict</div>
       <div class="verdicts">${['verified', 'refuted', 'trusted'].map(v => `
         <button class="v-${v} ${c.verdict === v ? 'on' : ''}"
@@ -193,15 +213,37 @@ function renderClaim() {
       <button onclick="next()"
         ${pos >= walk.length + base() - 1 ? 'disabled' : ''}>
         &gt;</button></div>`;
+  hydrateClaim(c);
 }
 
-function renderEvidence() {
-  const c = walk[ev.ci];
-  const e = c.evidence[ev.ei];
-  const data = ev.data;
-  let body = '';
+// The problem is evidence must be visible on the claim slide itself,
+// but resolution is a live call per recipe.
+// The way we solve this is rendering the slide at once with "resolving…"
+// panes, then filling each pane in place as its resolution arrives —
+// cached, so stepping back to a claim is instant.
+// flow: renderClaim() -> hydrateClaim() <-- HERE
+async function hydrateClaim(c) {
+  for (let i = 0; i < c.evidence.length; i++) {
+    const key = c.id + ':' + i;
+    if (!resCache[key]) {
+      const r = await fetch(
+        `/api/resolve?claim=${encodeURIComponent(c.id)}&idx=${i}`);
+      resCache[key] = await r.json();
+    }
+    if (ev || walk[pos - base()] !== c) return;  // reader moved on
+    const pane = document.querySelector(`.ev-pane[data-ei="${i}"]`);
+    if (pane) pane.innerHTML = resCache[key].error
+      ? `<div class="resolving">${esc(resCache[key].error)}</div>`
+      : evBody(c, resCache[key]);
+  }
+}
+
+// the resolved code for one evidence item — shared by the claim slide's
+// inline panes and the focus slide, so both carry the same line
+// comments, IDE links and drift badge
+function evBody(c, data) {
   if (data.kind === 'at') {
-    body = `
+    return `
       ${data.drift !== null && data.drift !== undefined
         ? `<div class="badge ${data.drift ? 'drift' : ''}">
             ${data.drift ? '≠ working tree has drifted'
@@ -218,21 +260,27 @@ function renderEvidence() {
             onclick="openIDE('${esc(data.path)}', ${n})">→</span>` : ''}
         </div>${cmtBoxFor(a)}${cmtFor(c, a)}`;
       }).join('')}</div>`;
-  } else {
-    body = data.count === 0
-      ? `<div class="zero">0 lines selected — the absence, proven live.</div>`
-      : `<div class="lines">${data.hits.map(h => {
-          const ide = h.anchor &&
-            h.anchor.match(/^(alpha|omega):(.+):(\d+)-\d+$/);
-          return `<div class="hit">
-            ${h.anchor ? `<span class="plus" title="comment"
-              onclick="toggleCmt('${h.anchor}')">+</span>` : ''}
-            ${esc(h.text)}
-            ${ide ? `<span class="go" title="open in IDE"
-              onclick="openIDE('${esc(ide[2])}', ${ide[3]})">→</span>` : ''}
-          </div>${h.anchor ? cmtBoxFor(h.anchor) + cmtFor(c, h.anchor) : ''}`;
-        }).join('')}</div>`;
   }
+  return data.count === 0
+    ? `<div class="zero">0 lines selected — the absence, proven live.</div>`
+    : `<div class="lines">${data.hits.map(h => {
+        const ide = h.anchor &&
+          h.anchor.match(/^(alpha|omega):(.+):(\d+)-\d+$/);
+        return `<div class="hit">
+          ${h.anchor ? `<span class="plus" title="comment"
+            onclick="toggleCmt('${h.anchor}')">+</span>` : ''}
+          ${esc(h.text)}
+          ${ide ? `<span class="go" title="open in IDE"
+            onclick="openIDE('${esc(ide[2])}', ${ide[3]})">→</span>` : ''}
+        </div>${h.anchor ? cmtBoxFor(h.anchor) + cmtFor(c, h.anchor) : ''}`;
+      }).join('')}</div>`;
+}
+
+function renderEvidence() {
+  const c = walk[ev.ci];
+  const e = c.evidence[ev.ei];
+  const data = ev.data;
+  const body = evBody(c, data);
   const recipe = e.kind === 'at' ? `at: ${esc(e.raw)}`
     : `grep: ${pipelineChips(e.pipeline)} in: ${esc(e.in)}`;
   currentCmd = shellCmd(e, data);
@@ -290,6 +338,7 @@ async function openEvidence(i) {
     `/api/resolve?claim=${encodeURIComponent(c.id)}&idx=${i}`);
   const data = await r.json();
   if (data.error) { alert(data.error); return; }
+  resCache[c.id + ':' + i] = data;
   ev = { ci: pos - base(), ei: i, data };
   render();
   syncPath();
@@ -303,6 +352,7 @@ async function stepEvidence(d) {
     `/api/resolve?claim=${encodeURIComponent(c.id)}&idx=${i}`);
   const data = await r.json();
   if (data.error) { alert(data.error); return; }
+  resCache[c.id + ':' + i] = data;
   ev = { ci: ev.ci, ei: i, data };
   render();
   syncPath();
@@ -378,7 +428,7 @@ function toggleCmt(anchor) {
 }
 
 async function submitLineComment(anchor, text) {
-  const c = walk[ev.ci];
+  const c = walk[ev ? ev.ci : pos - base()];
   await fetch('/api/comment', { method: 'POST',
     body: JSON.stringify({ claim: c.id, text, at: anchor }) });
   c.comments.push({ at: anchor, text });

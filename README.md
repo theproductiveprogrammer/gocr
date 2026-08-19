@@ -2,15 +2,20 @@
 
 Review a change by its **claims**, not its diff.
 
-AI-assisted development produces changes far bigger than anyone can
-read line by line. GOCR turns review into something that scales: a
-fresh agent (never the code's author) states what the change claims to
-do, anchors every claim to live-resolvable evidence, and a hard
-**coverage gate** proves no changed line went unexamined. You walk the
-claims in an interactive slide deck, check the evidence, and stamp
-verdicts. The artifact stores recipes, never results — everything
-resolves live against pinned git shas, so nothing in it can quietly go
-stale.
+AI-assisted development produces changes either bigger or quicker than
+humans used to to so review has become the bottleneck. GOCR's goal is
+to turn human review into something that scales: a story they can read
+and comment on.
+
+To do this a fresh agent (never the code's author) figures out what the
+change claims to do, anchors every claim to live-resolvable evidence,
+and a hard **coverage gate** proves no changed line went unexamined.
+
+Humans walk the claims in an interactive slide deck, check the evidence,
+and provide their feedback.
+
+The artifact stores recipes, never results — everything resolves live
+against pinned git shas, so nothing in it can quietly go stale.
 
 Two modes:
 

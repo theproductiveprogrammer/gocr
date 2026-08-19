@@ -615,10 +615,13 @@ def parse_claims(review_text: str) -> list[dict]:
     return claims
 
 
+# The problem is the story slide must show each walk leg WITH its short
+# why, but old artifacts carry a bare id list (and maybe a why essay).
+# The way we solve this is normalizing both walk spellings to
+# [{id, why}] so the report renders one shape; the legacy why block
+# still parses for old artifacts.
 # flow: report `GET /api/artifact` -> artifact_data() -> _story() <-- HERE
 def _story(review_text: str) -> dict:
-    m = re.search(r"^story:.*?walk:\s*\[(.*?)\]", review_text, re.M | re.S)
-    walk = [w.strip() for w in m.group(1).split(",")] if m else []
     t = re.search(r"^story:\s*\n\s*title:\s*(.*?)\s*$", review_text, re.M)
     lines = review_text.splitlines()
     # scan only below story: so a claim body mentioning "summary:" can't shadow it
@@ -632,6 +635,41 @@ def _story(review_text: str) -> dict:
                                      len(lines[i]) - len(lines[i].lstrip()))
                 return v
         return ""
+
+    walk = []
+    m = re.search(r"^story:.*?walk:\s*\[(.*?)\]", review_text, re.M | re.S)
+    if m:                                   # legacy: walk: [C2, C1]
+        walk = [{"id": w.strip(), "why": ""}
+                for w in m.group(1).split(",") if w.strip()]
+    else:                                   # block: "- C2: why text"
+        wi = next((i for i in range(start, len(lines))
+                   if re.match(r"^\s*walk:\s*(#.*)?$", lines[i])), None)
+        if wi is not None:
+            key_indent = len(lines[wi]) - len(lines[wi].lstrip())
+            i, cur = wi + 1, None
+            while i < len(lines):
+                line = lines[i]
+                if line.strip().startswith("#"):
+                    i += 1
+                    continue
+                if line.strip() and len(line) - len(line.lstrip()) <= key_indent:
+                    break                   # next story key
+                m2 = re.match(r"^\s*- (\S+?):\s*(.*?)\s*$", line)
+                if m2:
+                    wid, rest = m2.groups()
+                    if rest in (">", ">-", "|", ""):
+                        why, i = _block_scalar(
+                            lines, i + 1, len(line) - len(line.lstrip()))
+                        # leg whys are a sentence or two, never markdown
+                        walk.append({"id": wid,
+                                     "why": re.sub(r"\s+", " ", why).strip()})
+                        cur = None
+                        continue
+                    cur = {"id": wid, "why": rest}
+                    walk.append(cur)
+                elif cur is not None and line.strip():
+                    cur["why"] += " " + line.strip()
+                i += 1
     return {"title": t.group(1) if t else "", "walk": walk,
             "summary": block("summary"), "why": block("why")}
 

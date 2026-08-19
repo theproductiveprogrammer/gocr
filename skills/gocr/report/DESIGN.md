@@ -50,10 +50,14 @@ shadows, big rounded containers.
 - **Cover** — what the change IS: title, the story `summary` (2–4
   sentences), the coverage bar. Never the why: an itinerary before the
   reader knows the destination is the wall-of-text failure.
-- **Story slide** — the route: the `why` as readable paragraphs (any
-  length; density, not word count, is the enemy) plus the walk as a
-  clickable itinerary.
-- **Claim slides** — one assertion under the light, then its evidence.
+- **Story slide** — the route: the walk as a clickable itinerary, each
+  leg carrying its one-or-two-sentence why. The walk points; the claims
+  argue — a why essay that re-makes the claims' cases is the failure
+  this slide's shape exists to prevent.
+- **Claim slides** — one assertion under the light, its evidence
+  resolved inline beneath it. The code is visible on the slide itself,
+  never hidden behind a click; a recipe click opens a focus slide, it
+  doesn't reveal.
 
 ## Density philosophy
 

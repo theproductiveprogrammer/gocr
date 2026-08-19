@@ -6,6 +6,26 @@ description: |
 
 # GOCR — claim-based review of one change
 
+AI-assisted development produces changes either bigger or quicker than
+humans used to to so review has become the bottleneck. GOCR's goal is
+to turn human review into something that scales: a story they can read
+and comment on.
+
+To do this a fresh agent (never the code's author) figures out what the
+change claims to do, anchors every claim to live-resolvable evidence,
+and a hard **coverage gate** proves no changed line went unexamined.
+
+Humans walk the claims in an interactive slide deck, check the evidence,
+and provide their feedback.
+
+The artifact stores recipes, never results — everything resolves live
+against pinned git shas, so nothing in it can quietly go stale.
+
+**The deck is the deliverable.** A run that ends with a served URL and
+an untouched codebase is a complete success — not a review that stopped
+short. Judgment, and any fixing that follows, belongs to the human
+because that is the division of labor the design builds toward.
+
 GOCR runs in two modes:
 
 - **`change:`** — a transition between two pinned universes: **alpha**
@@ -42,11 +62,17 @@ The work is split across **roles** — distinct hats with different
 incentives, so no single author curates the whole artifact:
 **Claimant** (asserts)
   → **Detective** (anchors & gates)
-    → **Quant** (deterministic script)
-      → **Report Maker** (renders)
-        → **Reviewer** (adjudicates; human, optionally pre-screened by skeptics).
+    → **Editor** (makes it readable)
+      → **Quant** (deterministic script)
+        → **Report Maker** (renders)
+          → **Reviewer** (adjudicates; human, optionally pre-screened by skeptics).
 
 ## IMPORTANT RULES
+
+These rules are the design, not tripwires. Follow them with quiet
+confidence: having humans reading your work makes them a useful contributor
+to the flow and the faster and easier they can do it, the more they can
+help in the development process.
 
 1. **GOCR reviews; it never fixes.** The run's only outputs are
    `review.yaml` and the served report URL — no agent in the run edits
@@ -92,25 +118,35 @@ incentives, so no single author curates the whole artifact:
 ## Writing rules (all reader-facing prose)
 
 These apply to every word the human reads: claim `text`, `note`,
-`open_questions`, and above all `story.why`. Agents drafting or editing
+`open_questions`, and above all the story's walk. Agents drafting or editing
 an artifact follow them; violating prose gets rewritten, not shipped.
 
-- **4th-grade reading level.** Short sentences. One idea per sentence.
-  Plain words. Easy and enjoyable to read.
-- **Title + body.** Every claim has a `title` (a few words, the
-  assertion as a headline) and a markdown `text` body (literal block `|`):
-  short paragraphs, lists for enumerations, `code` for identifiers.
-- **A story is a story.** It should be easy and enjoyable to read — a
-  guided tour, not a compressed dependency dump. Tell the reader what
-  they will see at each stop and why the next stop follows naturally.
-  There is no length limit; the enemy is cleverness and density, not word
-  count. Write it the way Enid Blyton writes an adventure: short paragraphs,
-  one leg of the journey per paragraph, and it reads aloud without stumbling.
+- **Plain words, natural rhythm.** Write like a person explaining code
+  to a colleague. Vary the sentences: a chain of same-shape sentences
+  ("It holds four rules. It builds the id. It answers whether...") is
+  a drone — turn it into a list or one flowing sentence. Read it aloud;
+  if it drones or stumbles, rewrite it.
+- **Titles are names, not summaries.** The change `title` and every
+  claim `title` is one clause a reader can hold — never two or three
+  themes chained with "and". The `summary` and the claim bodies carry
+  the content; a title only has to point at it.
+- **Title + body.** Every claim has a `title` and a markdown `text`
+  body (literal block `|`): short paragraphs, lists for enumerations,
+  `code` for identifiers.
+- **The walk points; the claims argue.** Each walk leg gets one or two
+  sentences: what this stop is, and why it comes after the last one.
+  The argument — the evidence, the doubts, the consequences — lives on
+  the claim's own slide. If a leg could be pasted into a claim body, it
+  is in the wrong place. This, not a word cap, is what keeps the story
+  readable at any length: nothing is told twice.
+- **No performance.** The voice is a colleague pointing at things, not
+  a tour guide working the crowd. No theatrics ("Stop and look hard at
+  that", "cheerfully starts a second workflow"), no drama beats.
 - **Simplify the sentences, never the claims.** Every fact, number, and
   name stays — falsifiability survives. Only the packaging can change.
-- **Banned:** arrow chains (`A → B → C`), more than one claim id in a
-  sentence, nested or stacked parentheticals, id-soup of any kind. The
-  walk list already carries the ids; the why names *subjects*, not ids.
+- **Banned:** arrow chains (`A → B → C`), nested or stacked
+  parentheticals, id-soup of any kind. Ids live in the walk rows and
+  the claim kickers, never inside sentences.
 
 ## Workflow
 
@@ -169,9 +205,11 @@ Instruct the agent(s) to:
   error"), anchored like any other, so it gets its own slide and the
   human stamps the verdict.
 - Write one `story`: a `summary` for the cover (two to four plain
-  sentences saying what the change is and does), an ordered walk over
-  claim ids, and a `why` telling the tour — one short paragraph per leg,
-  each with its mechanical reason, per the writing rules.
+  sentences saying what the change is and does), and a `walk` — the
+  claims in reading order, each leg carrying its one-or-two-sentence
+  why: what this stop is, why it comes next (mechanical reasons, said
+  plainly). The walk points; the claims argue — no leg re-makes its
+  claim's case.
 
 **4. Gate.** `gocr.py coverage review.yaml`. Feed any UNCLAIMED lines
 back to the Detective (SendMessage) — it must either extend an existing
@@ -179,7 +217,20 @@ claim's evidence or add a claim (often `drive-by`). Repeat until exit 0.
 Never claim lines yourself to make the gate pass; that re-creates author
 curation one step removed.
 
-**5. Quant — a script, not a model.** Run `gocr.py stats review.yaml`:
+**5. Editor — a fresh reader, not the authors.** Once the gate is
+clean, spawn one more fresh subagent and hand it only the yaml and the
+writing rules — not the diff. It reads every reader-facing string —
+titles, summary, walk legs, claim texts, notes, open questions — and
+rewrites whatever reads poorly until it reads well aloud. It touches
+nothing else: ids, tags, evidence, anchors and verdicts stay
+byte-for-byte. Packaging changes; claims don't — every fact, number
+and name survives. A sentence the Editor cannot understand is not
+readable: it goes back to the Detective as a question, never gets
+paraphrased on a guess. Re-run the gate after — it must still exit 0.
+The Editor works blind to the diff on purpose: what it can't follow
+from the page alone, a human reviewer can't either.
+
+**6. Quant — a script, not a model.** Run `gocr.py stats review.yaml`:
 per-claim delta lines claimed, alpha/omega cites, grep backing, plus the
 "delta-only evidence" flag (claims that never look at either universe —
 often under-verified). These are the only importance signals allowed —
@@ -187,16 +238,18 @@ every number is recomputable by anyone. No model-estimated importance,
 no review-time guesses (rule 4); if a signal can't be recomputed from
 the artifact, it doesn't exist.
 
-**6. The report — Report Maker.** There is no rendered document (a
+**7. The report — Report Maker.** There is no rendered document (a
 static REVIEW.md would be a cached result of rendering — the thing the
 whole design forbids). The report is `gocr.py serve review.yaml`: a
 local slide deck over (yaml + repo) that resolves live — one slide at a
 time, PPT-style: cover (the story `summary` + coverage bar — what this
-change *is*) → story slide (the `why` told in paragraphs, plus the walk
-as a clickable itinerary) → one slide per claim in walk order →
-evidence slides you step into (and between, `<`/`>`) and
-back out of, with diff-styled resolution, per-line comments, a
-working-tree drift badge on omega selections, and line numbers that
+change *is*) → story slide (the walk as a clickable itinerary, each leg
+carrying its short why) → one slide per claim in walk order, with every
+evidence recipe resolved inline under it — the code is visible on the
+claim's own slide, never hidden behind a click. Clicking a recipe opens
+its focus slide (step between with `<`/`>`) with the same diff-styled
+resolution, per-line comments, a working-tree drift badge on omega
+selections, and line numbers that
 open the IDE (`GOCR_EDITOR` env, default `code -g {path}:{line}`).
 Verdict buttons and comments write straight back into review.yaml —
 comments are anchored by the same source:selection grammar
@@ -204,7 +257,7 @@ comments are anchored by the same source:selection grammar
 touch coverage. The Report Maker's remaining craft is the story: walk
 order and why, citing stats numbers as the mechanical reasons.
 
-**7. Reviewer.** The human adjudicates — that never changes. If the user
+**8. Reviewer.** The human adjudicates — that never changes. If the user
 asks for a **verify pass** first ("gocr verify"), spawn one skeptic
 subagent per contested claim, prompted to REFUTE it from the evidence.
 A skeptic that finds a problem appends an `open_questions` entry
@@ -212,7 +265,7 @@ prefixed with its lens (`"[skeptic:correctness] ..."`); one that finds
 nothing writes nothing. Skeptics NEVER touch `verdict` — machine doubt
 goes in open questions, judgment stays human.
 
-**8. Hand over.** Start `serve` and give the user the URL. Final
+**9. Hand over.** Start `serve` and give the user the URL. Final
 message: the URL, where the yaml lives, claim count, the stats table's
 standouts, and the open questions most worth their attention (drive-bys
 and invariant gaps first). Review = walking the deck and setting each
@@ -251,7 +304,7 @@ change:                           # ── review mode ──
   omega: <full sha>               # the universe after
   # delta: change.diff            # ONLY for repo-less review of a fetched diff
   source: <url, if any>           # provenance (both modes)
-  title: <commit subject or user's words>
+  title: <a name for the change — one clause, no "and" chains>
   authored_by: fresh-agent        # never the code author
 
 # — or —
@@ -307,12 +360,14 @@ story:
     Two to four plain sentences: what this change is and what it does
     to the system. This is the cover of the deck — the first thing
     the reader sees, before any claim.
-  walk: [C2, C1, ...]
-  why: |
-    The tour, told as a story on its own slide. One short paragraph
-    per leg of the walk, each carrying its mechanical reason.
-
-    Any length — but it must read aloud easily (writing rules).
+  walk:                    # the claims in reading order, one leg each
+    - C2: everything else leans on this new class, so meet it first
+    - C1: the point of the branch — one check moved above every save
+    - C3: >
+        the hole that move leaves open, and what the losing request
+        does about it now
+    # each leg: one or two sentences — what the stop is, why it's next.
+    # The walk points; the claims argue: no leg re-makes its claim's case.
 ```
 
 ## Evidence grammar (source:selection)

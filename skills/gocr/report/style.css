@@ -195,6 +195,11 @@ button:disabled { opacity: .3; cursor: default; }
   min-width: 22px;
 }
 .walklist li:hover { background: var(--steel-dim); color: var(--ink); }
+.walklist .lwhy {
+  color: var(--dim);
+  font-size: 13.5px;
+  margin: 2px 0 2px 22px;
+}
 .walklist .wid {
   font-family: var(--mono);
   font-size: 11px;
@@ -266,7 +271,8 @@ code {
   margin: 22px 0 8px;
 }
 
-/* evidence rows: machine artifacts, slightly raised */
+/* evidence rows: machine artifacts, slightly raised; each row is the
+   header of its inline resolution pane below */
 .ev {
   font-family: var(--mono);
   font-size: 12.5px;
@@ -274,11 +280,37 @@ code {
   padding: 9px 12px;
   background: var(--raise);
   border: 1px solid var(--line);
-  border-radius: 5px;
-  margin: 6px 0;
+  border-radius: 5px 5px 0 0;
+  margin: 14px 0 0;
   cursor: pointer;
 }
 .ev:hover { border-color: var(--steel); }
+
+/* the resolved code, visible on the claim slide itself; tall
+   selections scroll inside the pane, never hide behind a click */
+.ev-pane {
+  border: 1px solid var(--line);
+  border-top: none;
+  border-radius: 0 0 5px 5px;
+  max-height: 340px;
+  overflow: auto;
+  background: var(--raise);
+}
+.ev-pane .lines {
+  border: none;
+  border-radius: 0;
+  margin-top: 0;
+  background: none;
+}
+.ev-pane .badge { margin: 8px 12px 0; }
+.ev-pane .zero { margin: 12px; }
+.ev-pane .cmt { margin-left: 12px; margin-right: 12px; }
+.resolving {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--faint);
+  padding: 8px 12px;
+}
 .ev .n {
   color: var(--dim);
   font-family: var(--serif);
