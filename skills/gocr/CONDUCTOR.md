@@ -367,7 +367,8 @@ The report is a slide deck served live over (yaml + repo): cover (the
 story `summary` + coverage bar) → story slide (the walk as a clickable
 itinerary, each leg with its why) → one slide per claim in walk order,
 open questions above the evidence, every evidence recipe resolved
-inline on the slide. Verdict buttons and the reviewer's comments write
+inline on the slide → an end slide tallying verdicts and what is
+still open. Verdict buttons and the reviewer's comments write
 straight back into review.yaml — comments are anchored by the same
 source:selection grammar and are testimony, never evidence: they don't
 touch coverage.

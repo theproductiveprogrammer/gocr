@@ -163,16 +163,23 @@ def evidence(review_text: str) -> list[dict]:
             entries.append(grep)
             note_for = grep
             continue
-        m = re.match(r"\s*note:\s*(.*?)\s*$", line)
+        m = re.match(r"(\s*)note:\s*(.*?)\s*$", line)
         if m and note_for is not None:
-            note_for["note"] = "" if m.group(1) in (">", ">-", "|") \
-                else _clean(m.group(1))
-            note_for["_noting"] = m.group(1) in (">", ">-", "|")
+            val = m.group(2)
+            note_for["note"] = "" if val in (">", ">-", "|") else _clean(val)
+            # block note: remember the key's indent so a dedented line
+            # (open_questions:, the next claim, ...) closes the block —
+            # an open-ended scan swallows whatever section follows
+            note_for["_noting"] = len(m.group(1)) if val in (">", ">-", "|") \
+                else None
             continue
-        if note_for is not None and note_for.get("_noting") \
-                and re.match(r"\s{8,}\S", line):
-            note_for["note"] = (note_for["note"] + " " + line.strip()).strip()
-            continue
+        if note_for is not None and note_for.get("_noting") is not None \
+                and line.strip():
+            if len(line) - len(line.lstrip()) > note_for["_noting"]:
+                note_for["note"] = (note_for["note"] + " "
+                                    + line.strip()).strip()
+                continue
+            note_for["_noting"] = None  # dedent closes; fall through
         if grep is not None:
             m = re.match(r"\s*-\s*(.+?)\s*$", line)
             if m and not re.match(r"\s*-\s*(at|grep|id|note):", line):
@@ -357,9 +364,40 @@ def resolve_at_data(meta: dict, raw: str) -> dict:
     src, path, a, b = m.groups()
     a, b = int(a), int(b)
     drift = None
+    ide = None
     if src == "delta":
         lines = delta_text(meta).splitlines()
         anchors = [f"delta:{i}-{i}" for i in range(a, min(b, len(lines)) + 1)]
+        # Understand: a delta line still lives in a file — walk the diff
+        # headers so each selected row knows [path, omega lineno] (None
+        # lineno for removed/meta rows), which feeds the IDE link and the
+        # highlighter's language guess.
+        ide = []
+        path_now, new_ln, cur = None, 0, None
+        for idx, l in enumerate(lines, 1):
+            if idx > min(b, len(lines)):
+                break
+            if l.startswith("+++ "):
+                p = l[4:].strip()
+                path_now = None if p == "/dev/null" else \
+                    (p[2:] if p.startswith("b/") else p)
+                cur = None
+            elif l.startswith(("diff ", "index ", "--- ", "\\")):
+                cur = None
+            elif l.startswith("@@"):
+                m2 = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)", l)
+                new_ln = int(m2.group(1)) - 1 if m2 else 0
+                cur = None
+            elif l.startswith("+"):
+                new_ln += 1
+                cur = new_ln
+            elif l.startswith("-"):
+                cur = None
+            else:  # context line
+                new_ln += 1
+                cur = new_ln
+            if idx >= a:
+                ide.append([path_now, cur] if path_now else None)
     else:
         sha = meta[src]
         if not sha or not path:
@@ -379,7 +417,7 @@ def resolve_at_data(meta: dict, raw: str) -> dict:
                 drift = True
     return {"kind": "at", "raw": raw, "src": src, "path": path, "start": a,
             "lines": [[i, l] for i, l in enumerate(lines[a - 1:b], a)],
-            "anchors": anchors, "drift": drift}
+            "anchors": anchors, "drift": drift, "ide": ide}
 
 
 # flow: CLI resolve + report `GET /api/resolve` -> resolve_grep_data() <-- HERE

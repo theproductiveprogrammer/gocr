@@ -22,6 +22,9 @@ const resCache = {}; // "claimId:idx" -> resolved evidence, so claim
 const base = () =>
   (A && (whys.some(Boolean) || A.story.why) ? 2 : 1);
 
+// the closing slide's position — the record: tallies, gaps, hand-off
+const endPos = () => walk.length + base();
+
 const $slide = document.getElementById('slide');
 const esc = (s) => (s ?? '').replace(/[&<>"]/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -30,6 +33,76 @@ const inline = (t) => t
   .replace(/`([^`]+)`/g, '<code>$1</code>')
   .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
   .replace(/\*([^*\s][^*]*)\*/g, '<i>$1</i>');
+
+// The problem is humans scan code by shape - keywords, strings and
+// comments must pop without reading every word.
+// The way we solve this is a tiny per-line tokenizer: keywords bold,
+// strings dim, comments faint italic - shades and weight only, no new
+// hues (saturation stays reserved for judgment).
+const KW = Object.fromEntries(Object.entries({
+  clike: 'abstract assert boolean break byte case catch char class const' +
+    ' continue default do double else enum extends final finally float for' +
+    ' func function go goto if implements import instanceof int interface' +
+    ' let long map new package private protected public range record return' +
+    ' select sealed short static struct super switch synchronized this throw' +
+    ' throws try type typeof var void volatile while yield async await of' +
+    ' export null true false undefined nil',
+  py: 'and as assert async await break class continue def del elif else' +
+    ' except finally for from global if import in is lambda nonlocal not or' +
+    ' pass raise return try while with yield None True False self',
+  sql: 'select from where insert into update delete create table alter drop' +
+    ' index join left right inner outer on group by order limit having' +
+    ' union all as and or not null primary key foreign references default' +
+    ' values set materialize materialized column exists distinct',
+  sh: 'if then else elif fi for while do done case esac function local' +
+    ' return export echo exit set',
+}).map(([k, v]) => [k, new Set(v.split(' '))]));
+
+const LANG_OF = (path) => ({ py: 'py', sql: 'sql', sh: 'sh', bash: 'sh',
+  zsh: 'sh', yml: 'py', yaml: 'py', toml: 'py', rb: 'py', properties: 'py',
+}[(path || '').split('.').pop().toLowerCase()] || 'clike');
+
+function hlLine(t, lang) {
+  const kw = KW[lang] || KW.clike;
+  // block-comment continuation ("* javadoc body", "*/") — the opener
+  // lives on an earlier line, so treat the whole line as comment
+  if (lang === 'clike' && /^\s*\*/.test(t))
+    return `<span class="tok-c">${esc(t)}</span>`;
+  let out = '', i = 0;
+  const push = (cls, s) => { out += cls
+    ? `<span class="${cls}">${esc(s)}</span>` : esc(s); };
+  while (i < t.length) {
+    const ch = t[i], rest = t.slice(i);
+    if ((ch === '/' && t[i + 1] === '/' && lang === 'clike') ||
+        (ch === '#' && (lang === 'py' || lang === 'sh')) ||
+        (ch === '-' && t[i + 1] === '-' && lang === 'sql')) {
+      push('tok-c', rest); break;
+    }
+    if (ch === '/' && t[i + 1] === '*') {
+      const e = t.indexOf('*/', i + 2);
+      const end = e < 0 ? t.length : e + 2;
+      push('tok-c', t.slice(i, end)); i = end; continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      let j = i + 1;
+      while (j < t.length && t[j] !== ch) j += t[j] === '\\' ? 2 : 1;
+      const end = Math.min(j + 1, t.length);
+      push('tok-s', t.slice(i, end)); i = end; continue;
+    }
+    let m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(rest);
+    if (m) {
+      push(kw.has(m[0]) ? 'tok-k'
+        : (/^[A-Z]/.test(m[0]) ? 'tok-t' : ''), m[0]);
+      i += m[0].length; continue;
+    }
+    m = /^\d[\d_.xXa-fA-F]*/.exec(rest);
+    if (m) { push('tok-n', m[0]); i += m[0].length; continue; }
+    push('', ch); i++;
+  }
+  return out;
+}
+
+const DIFF_META = /^(diff |index |--- |\+\+\+ |@@|\\ No newline)/;
 
 // a filter pipeline renders as one chip per pattern - never [a, b],
 // which reads as a regex character class and lies about the meaning
@@ -80,6 +153,7 @@ function pathFor() {
   if (ev) return `/${walk[ev.ci].id}/${ev.ei + 1}`;
   if (pos === 0) return '/';
   if (pos < base()) return '/story';
+  if (pos >= endPos()) return '/end';
   return `/${walk[pos - base()].id}`;
 }
 
@@ -93,6 +167,7 @@ async function applyPath() {
   if (parts[0] === 'story' && base() === 2) {
     pos = 1; ev = null; render(); return;
   }
+  if (parts[0] === 'end') { pos = endPos(); ev = null; render(); return; }
   const ci = parts.length ? walk.findIndex(c => c.id === parts[0]) : -1;
   if (ci < 0) { pos = 0; ev = null; render(); return; }
   pos = ci + base();
@@ -111,6 +186,7 @@ function render() {
   if (ev) renderEvidence();
   else if (pos === 0) renderTitle();
   else if (pos < base()) renderStory();
+  else if (pos >= endPos()) renderEnd();
   else renderClaim();
 }
 
@@ -122,7 +198,7 @@ function renderTitle() {
   $slide.className = 'card title-slide';
   $slide.innerHTML = `
     <div class="kicker"><span>${esc(A.mode)} · ${esc(A.repo)}</span>
-      <span>1 / ${walk.length + base()}</span></div>
+      <span>1 / ${endPos() + 1}</span></div>
     <div class="body">
       <h1>${esc(A.title)}</h1>
       <div class="meta">${esc(A.ref || (A.omega || '').slice(0, 10))}</div>
@@ -144,7 +220,7 @@ function renderStory() {
   $slide.className = 'card claim story-slide';
   $slide.innerHTML = `
     <div class="kicker"><span>the story · ${esc(A.repo)}</span>
-      <span>2 / ${walk.length + base()}</span></div>
+      <span>2 / ${endPos() + 1}</span></div>
     <div class="body">
       <h2>${esc(A.story.title || 'How to read this deck')}</h2>
       ${A.story.why ? `<div class="claimbody">${mdlite(A.story.why)}</div>` : ''}
@@ -165,6 +241,44 @@ function gotoClaim(i) {
   syncPath();
 }
 
+// flow: serve deck — reader stamps (or steps past) the last claim and
+// lands on the record: verdict tally, what's still open, and the
+// hand-off line for the next agent
+function renderEnd() {
+  const groups = { verified: [], refuted: [], trusted: [], unverified: [] };
+  walk.forEach(c => (groups[c.verdict] || groups.unverified).push(c));
+  const nc = walk.reduce((n, c) => n + c.comments.length, 0);
+  const noq = walk.reduce((n, c) => n + c.open_questions.length, 0);
+  const row = (c) => `
+    <li onclick="gotoClaim(${walk.indexOf(c)})">
+      <span class="wid">${esc(c.id)}</span>${esc(c.title || c.id)}</li>`;
+  $slide.className = 'card claim end-slide';
+  $slide.innerHTML = `
+    <div class="kicker"><span>the record · ${esc(A.repo)}</span>
+      <span>${endPos() + 1} / ${endPos() + 1}</span></div>
+    <div class="body">
+      <h2>End of the walk</h2>
+      <div class="tally">
+        ${['verified', 'refuted', 'trusted', 'unverified'].map(v =>
+          groups[v].length
+            ? `<span class="pill v-${v}">${groups[v].length} ${v}</span>`
+            : '').join('')}
+      </div>
+      <div class="meta">${nc} comment${nc === 1 ? '' : 's'} ·
+        ${noq} open question${noq === 1 ? '' : 's'} ·
+        ${A.coverage.claimed}/${A.coverage.total} ${esc(A.coverage.unit)}</div>
+      ${groups.refuted.length ? `<div class="sec">refuted</div>
+        <ol class="walklist">${groups.refuted.map(row).join('')}</ol>` : ''}
+      ${groups.unverified.length ? `<div class="sec">not yet stamped</div>
+        <ol class="walklist">${groups.unverified.map(row).join('')}</ol>` : ''}
+      <div class="note">Everything you stamped and wrote is already in
+        the yaml. Hand it to any agent: "read the gocr review and
+        address my comments, refuted claims, and open questions."</div>
+    </div>
+    <div class="nav"><button onclick="prev()">&lt;</button>
+      <button onclick="pos=0;render();syncPath()">cover</button></div>`;
+}
+
 function renderClaim() {
   const c = walk[pos - base()];
   $slide.className = 'card claim';
@@ -181,9 +295,13 @@ function renderClaim() {
         ? `<div class="cmt">${esc(x.text)}<span class="del"
              title="delete comment" onclick="delComment(${xi})">×</span></div>`
         : '').join('')}
-      <input class="cmt-in" placeholder="add a comment…"
-        onkeydown="if(event.key==='Enter'&&this.value.trim())
-          claimComment(this.value.trim())">
+      <div class="cmt-row">
+        <input class="cmt-in" placeholder="add a comment…"
+          onkeydown="if(event.key==='Enter'&&this.value.trim())
+            claimComment(this.value.trim())">
+        <button class="cmt-go" onclick="const i=this.previousElementSibling;
+          if(i.value.trim()) claimComment(i.value.trim())">post</button>
+      </div>
       ${c.open_questions.length ? `<div class="sec">open questions</div>` : ''}
       ${c.open_questions.map(q => `<div class="oq">${esc(q)}</div>`).join('')}
       <div class="sec">evidence</div>
@@ -210,9 +328,7 @@ function renderClaim() {
     </div>
     <div class="nav">
       <button onclick="prev()">&lt;</button>
-      <button onclick="next()"
-        ${pos >= walk.length + base() - 1 ? 'disabled' : ''}>
-        &gt;</button></div>`;
+      <button onclick="next()">&gt;</button></div>`;
   hydrateClaim(c);
 }
 
@@ -249,15 +365,26 @@ function evBody(c, data) {
             ${data.drift ? '≠ working tree has drifted'
                          : '= matches working tree'}</div>` : ''}
       <div class="lines">${data.lines.map(([n, t], i) => {
-        const cls = t.startsWith('+') ? 'add' : t.startsWith('-') ? 'del' : '';
+        const isDelta = data.src === 'delta';
+        const meta = isDelta && DIFF_META.test(t);
+        const cls = meta ? 'meta'
+          : t.startsWith('+') ? 'add' : t.startsWith('-') ? 'del' : '';
         const a = data.anchors[i];
+        // delta lines carry their own [file, omega-line]; file lines use
+        // the selection's path — either way the IDE link points somewhere real
+        const ide = isDelta ? (data.ide || [])[i]
+          : (data.path ? [data.path, n] : null);
+        const lang = LANG_OF(ide ? ide[0] : data.path);
+        const tx = meta ? esc(t)
+          : isDelta ? esc(t[0] || '') + hlLine(t.slice(1), lang)
+          : hlLine(t, lang);
         return `<div class="ln ${cls}">
           <span class="plus" title="comment on this line"
             onclick="toggleCmt('${a}')">+</span>
           <span class="no">${n}</span>
-          <span class="tx">${esc(t) || ' '}</span>
-          ${data.path ? `<span class="go" title="open in IDE"
-            onclick="openIDE('${esc(data.path)}', ${n})">→</span>` : ''}
+          <span class="tx">${tx || ' '}</span>
+          ${ide && ide[1] ? `<span class="go" title="open in IDE"
+            onclick="openIDE('${esc(ide[0])}', ${ide[1]})">→</span>` : ''}
         </div>${cmtBoxFor(a)}${cmtFor(c, a)}`;
       }).join('')}</div>`;
   }
@@ -327,7 +454,7 @@ async function delComment(xi) {
 }
 
 function next() { if (ev) return;
-  pos = Math.min(pos + 1, walk.length + base() - 1); render(); syncPath(); }
+  pos = Math.min(pos + 1, endPos()); render(); syncPath(); }
 function prev() { if (ev) { closeEvidence(); return; }
   if (pos > 0) pos--; render(); syncPath(); }
 function closeEvidence() { ev = null; render(); syncPath(); }
@@ -358,13 +485,16 @@ async function stepEvidence(d) {
   syncPath();
 }
 
+// stamping a verdict advances to the next claim — the stamp is the
+// "done with this slide" gesture; un-stamping stays put
 async function setVerdict(v) {
   const c = walk[pos - base()];
   const val = c.verdict === v ? 'unverified' : v;
   await fetch('/api/verdict', { method: 'POST',
     body: JSON.stringify({ claim: c.id, verdict: val }) });
   c.verdict = val;
-  render();
+  if (val !== 'unverified') next();  // last claim's stamp lands on the record
+  else render();
 }
 
 async function claimComment(text) {
@@ -417,7 +547,10 @@ function cmtBoxFor(anchor) {
   return `<div class="cmt-box"><input placeholder="comment…"
     onkeydown="if(event.key==='Enter'&&this.value.trim())
       submitLineComment('${anchor}', this.value.trim());
-      if(event.key==='Escape') toggleCmt(null)"></div>`;
+      if(event.key==='Escape') toggleCmt(null)">
+    <button class="cmt-go" onclick="const i=this.previousElementSibling;
+      if(i.value.trim()) submitLineComment('${anchor}', i.value.trim())">
+      post</button></div>`;
 }
 
 function toggleCmt(anchor) {

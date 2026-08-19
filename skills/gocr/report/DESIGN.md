@@ -38,6 +38,10 @@ Saturation is **reserved for judgment**:
 Banned: cream/terracotta, purple, neon accents, gradients, heavy
 shadows, big rounded containers.
 
+Syntax highlighting obeys the same law: weight and shade only —
+keywords bold ink, comments faint italic, strings dim. Never a hue;
+colored code would shout over the verdicts.
+
 ## The signature: verdict stamps
 
 - Pending: dashed pill, dim — an outline waiting for ink.
@@ -57,7 +61,10 @@ shadows, big rounded containers.
 - **Claim slides** — one assertion under the light, its evidence
   resolved inline beneath it. The code is visible on the slide itself,
   never hidden behind a click; a recipe click opens a focus slide, it
-  doesn't reveal.
+  doesn't reveal. Stamping a verdict advances to the next slide.
+- **End slide (the record)** — verdict tally as a row of stamps,
+  jump-back lists for refuted and not-yet-stamped claims, and the
+  hand-off line. The walk closes; it doesn't just stop.
 
 ## Density philosophy
 

@@ -200,6 +200,20 @@ button:disabled { opacity: .3; cursor: default; }
   font-size: 13.5px;
   margin: 2px 0 2px 22px;
 }
+
+/* end slide: the verdict tally reads as a row of stamps */
+.tally {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 12px 0 10px;
+}
+.end-slide .meta {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--dim);
+}
 .walklist .wid {
   font-family: var(--mono);
   font-size: 11px;
@@ -283,6 +297,7 @@ code {
   border-radius: 5px 5px 0 0;
   margin: 14px 0 0;
   cursor: pointer;
+  overflow-wrap: anywhere;  /* long anchor paths wrap, never clip */
 }
 .ev:hover { border-color: var(--steel); }
 
@@ -346,9 +361,15 @@ code {
   color: var(--faint);
   display: block;
 }
-.cmt-in {
-  width: 100%;
+.cmt-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   max-width: 68ch;
+  margin-top: 8px;
+}
+.cmt-in {
+  flex: 1;
   font-family: var(--serif);
   font-size: 14px;
   background: none;
@@ -357,8 +378,8 @@ code {
   color: var(--ink);
   padding: 5px 2px;
   outline: none;
-  margin-top: 8px;
 }
+.cmt-go { padding: 4px 10px; font-size: 11.5px; }
 .cmt-in::placeholder, .cmt-box input::placeholder { color: var(--faint); }
 
 /* ── the verdict: stamps on the record ────────────────────────── */
@@ -442,7 +463,13 @@ code {
   padding: 8px 0;
   margin-top: 12px;
 }
-.ln { display: flex; align-items: baseline; }
+/* grid, not flex: a minmax(0,1fr) text column cannot collapse to
+   min-content the way a flex-basis:0 item can in some engines */
+.ln {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: baseline;
+}
 .ln:hover { background: var(--steel-dim); }
 .ln .no {
   color: var(--faint);
@@ -451,10 +478,19 @@ code {
   padding-right: 12px;
   user-select: none;
 }
-.ln .tx { white-space: pre-wrap; word-break: break-all; flex: 1;
+.ln .tx { white-space: pre-wrap; word-break: break-all;
           color: var(--body-c); }
 .ln.add { background: var(--add); }
 .ln.del { background: var(--del); }
+.ln.meta .tx { color: var(--faint); }
+
+/* syntax highlight: weight and shade only — never hue; saturation
+   stays reserved for judgment */
+.tok-k { color: var(--ink); font-weight: 600; }
+.tok-t { color: var(--ink); }
+.tok-s { color: var(--dim); }
+.tok-c { color: var(--faint); font-style: italic; }
+.tok-n { color: var(--ink); }
 
 .plus, .go {
   font-family: var(--mono);
@@ -469,9 +505,14 @@ code {
 }
 .plus:hover, .go:hover { color: var(--steel); }
 
-.cmt-box { padding: 3px 0 6px 64px; }
+.cmt-box {
+  padding: 3px 12px 6px 64px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 .cmt-box input {
-  width: 90%;
+  flex: 1;
   font-family: var(--serif);
   font-size: 14px;
   background: none;
@@ -531,9 +572,11 @@ code {
 }
 #theme:hover { color: var(--steel); border-color: var(--steel); }
 
-.del {
+/* scoped under .cmt — a bare .del selector would also hit deleted
+   diff rows (.ln.del) and float them out of the code block */
+.cmt .del {
   float: right; font-family: var(--mono); color: var(--faint);
   opacity: 0; cursor: pointer; padding: 0 4px; user-select: none;
 }
 .cmt:hover .del { opacity: 1; }
-.del:hover { color: var(--bad); }
+.cmt .del:hover { color: var(--bad); }
