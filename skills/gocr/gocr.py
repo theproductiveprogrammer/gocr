@@ -350,6 +350,53 @@ def _print_capped(rows: list[str], cap: int = 100) -> None:
         print(f"  ... {len(rows) - cap} more")
 
 
+# The problem is a selection can start inside a docstring or a block
+# comment opened many lines above it, and the report highlights one
+# line at a time.
+# The way we solve this is scanning the lines above the range once,
+# here where the whole file is in hand, and handing the report the
+# state at the first selected line: an open triple-quote (python) or
+# an open /* */ (everything C-like). Rough by design - strings that
+# contain "/*" are not worth a real lexer.
+# flow: report `GET /api/resolve` -> resolve_at_data() -> _hl_state() <-- HERE
+def _hl_state(lines_before: list[str], path: str) -> dict:
+    ext = (path or "").rsplit(".", 1)[-1].lower()
+    state = {"str": None, "cmt": False}
+    if ext in ("py", "pyi"):
+        for l in lines_before:
+            i = 0
+            while i < len(l):
+                if state["str"]:
+                    j = l.find(state["str"], i)
+                    if j < 0:
+                        break
+                    state["str"], i = None, j + 3
+                else:
+                    found = [(l.find(d, i), d) for d in ('"""', "'''")]
+                    found = [(j, d) for j, d in found if j >= 0]
+                    h = l.find("#", i)
+                    if not found or (h >= 0 and h < min(found)[0]):
+                        break
+                    j, d = min(found)
+                    state["str"], i = d, j + 3
+    elif ext not in ("sh", "bash", "zsh", "yml", "yaml", "toml", "rb",
+                     "properties", "md", "txt"):
+        for l in lines_before:
+            i = 0
+            while i < len(l):
+                if state["cmt"]:
+                    j = l.find("*/", i)
+                    if j < 0:
+                        break
+                    state["cmt"], i = False, j + 2
+                else:
+                    j, s = l.find("/*", i), l.find("//", i)
+                    if j < 0 or (0 <= s < j):
+                        break
+                    state["cmt"], i = True, j + 2
+    return state
+
+
 # The problem is evidence must lead a reader back to real text - delta
 # lines, file lines and grep results - with recipes, not cached results.
 # The way we solve this is resolving live: the delta derived (or pinned),
@@ -365,6 +412,7 @@ def resolve_at_data(meta: dict, raw: str) -> dict:
     a, b = int(a), int(b)
     drift = None
     ide = None
+    hl_state = None
     if src == "delta":
         lines = delta_text(meta).splitlines()
         anchors = [f"delta:{i}-{i}" for i in range(a, min(b, len(lines)) + 1)]
@@ -410,6 +458,7 @@ def resolve_at_data(meta: dict, raw: str) -> dict:
         lines = proc.stdout.splitlines()
         anchors = [f"{src}:{path}:{i}-{i}"
                    for i in range(a, min(b, len(lines)) + 1)]
+        hl_state = _hl_state(lines[:a - 1], path)
         if src == "omega":
             try:
                 drift = _read(path) != proc.stdout
@@ -417,7 +466,8 @@ def resolve_at_data(meta: dict, raw: str) -> dict:
                 drift = True
     return {"kind": "at", "raw": raw, "src": src, "path": path, "start": a,
             "lines": [[i, l] for i, l in enumerate(lines[a - 1:b], a)],
-            "anchors": anchors, "drift": drift, "ide": ide}
+            "anchors": anchors, "drift": drift, "ide": ide,
+            "hl_state": hl_state}
 
 
 # flow: CLI resolve + report `GET /api/resolve` -> resolve_grep_data() <-- HERE

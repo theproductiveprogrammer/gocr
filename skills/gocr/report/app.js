@@ -62,26 +62,47 @@ const LANG_OF = (path) => ({ py: 'py', sql: 'sql', sh: 'sh', bash: 'sh',
   zsh: 'sh', yml: 'py', yaml: 'py', toml: 'py', rb: 'py', properties: 'py',
 }[(path || '').split('.').pop().toLowerCase()] || 'clike');
 
-function hlLine(t, lang) {
+// Understand: strings and comments can open on an earlier line (python
+// docstrings, /* */ blocks), so the tokenizer carries {str, cmt} state
+// from line to line; the resolver seeds it for file selections by
+// scanning the lines above the range. Returns {html, state}.
+function hlLine(t, lang, state) {
   const kw = KW[lang] || KW.clike;
-  // block-comment continuation ("* javadoc body", "*/") — the opener
-  // lives on an earlier line, so treat the whole line as comment
-  if (lang === 'clike' && /^\s*\*/.test(t))
-    return `<span class="tok-c">${esc(t)}</span>`;
+  const st = { str: state ? state.str : null, cmt: state ? state.cmt : false };
   let out = '', i = 0;
-  const push = (cls, s) => { out += cls
+  const push = (cls, s) => { if (s) out += cls
     ? `<span class="${cls}">${esc(s)}</span>` : esc(s); };
+  // block-comment continuation ("* javadoc body") when we have no seed
+  if (!state && lang === 'clike' && /^\s*\*/.test(t))
+    return { html: `<span class="tok-c">${esc(t)}</span>`, state: st };
   while (i < t.length) {
+    if (st.str) {                              // inside a multi-line string
+      const j = t.indexOf(st.str, i);
+      if (j < 0) { push('tok-s', t.slice(i)); break; }
+      push('tok-s', t.slice(i, j + st.str.length));
+      i = j + st.str.length; st.str = null; continue;
+    }
+    if (st.cmt) {                              // inside a block comment
+      const j = t.indexOf('*/', i);
+      if (j < 0) { push('tok-c', t.slice(i)); break; }
+      push('tok-c', t.slice(i, j + 2)); i = j + 2; st.cmt = false; continue;
+    }
     const ch = t[i], rest = t.slice(i);
     if ((ch === '/' && t[i + 1] === '/' && lang === 'clike') ||
         (ch === '#' && (lang === 'py' || lang === 'sh')) ||
         (ch === '-' && t[i + 1] === '-' && lang === 'sql')) {
       push('tok-c', rest); break;
     }
-    if (ch === '/' && t[i + 1] === '*') {
+    if (ch === '/' && t[i + 1] === '*' && lang !== 'py' && lang !== 'sh') {
       const e = t.indexOf('*/', i + 2);
-      const end = e < 0 ? t.length : e + 2;
-      push('tok-c', t.slice(i, end)); i = end; continue;
+      if (e < 0) { push('tok-c', rest); st.cmt = true; break; }
+      push('tok-c', t.slice(i, e + 2)); i = e + 2; continue;
+    }
+    if (lang === 'py' && (rest.startsWith('"""') || rest.startsWith("'''"))) {
+      const d = rest.slice(0, 3);
+      const e = t.indexOf(d, i + 3);
+      if (e < 0) { push('tok-s', rest); st.str = d; break; }
+      push('tok-s', t.slice(i, e + 3)); i = e + 3; continue;
     }
     if (ch === '"' || ch === "'" || ch === '`') {
       let j = i + 1;
@@ -99,7 +120,7 @@ function hlLine(t, lang) {
     if (m) { push('tok-n', m[0]); i += m[0].length; continue; }
     push('', ch); i++;
   }
-  return out;
+  return { html: out, state: st };
 }
 
 const DIFF_META = /^(diff |index |--- |\+\+\+ |@@|\\ No newline)/;
@@ -364,20 +385,30 @@ function evBody(c, data) {
         ? `<div class="badge ${data.drift ? 'drift' : ''}">
             ${data.drift ? '≠ working tree has drifted'
                          : '= matches working tree'}</div>` : ''}
-      <div class="lines">${data.lines.map(([n, t], i) => {
+      <div class="lines">${(() => {
         const isDelta = data.src === 'delta';
+        // highlight state carried line to line; seeded by the resolver for
+        // file selections (it scanned the lines above), reset per file in a diff
+        let st = data.hl_state || null, lastPath = null;
+        return data.lines.map(([n, t], i) => {
         const meta = isDelta && DIFF_META.test(t);
-        const cls = meta ? 'meta'
+        const cls = !isDelta ? '' : meta ? 'meta'
           : t.startsWith('+') ? 'add' : t.startsWith('-') ? 'del' : '';
         const a = data.anchors[i];
         // delta lines carry their own [file, omega-line]; file lines use
         // the selection's path — either way the IDE link points somewhere real
         const ide = isDelta ? (data.ide || [])[i]
           : (data.path ? [data.path, n] : null);
-        const lang = LANG_OF(ide ? ide[0] : data.path);
-        const tx = meta ? esc(t)
-          : isDelta ? esc(t[0] || '') + hlLine(t.slice(1), lang)
-          : hlLine(t, lang);
+        const path = ide ? ide[0] : data.path;
+        if (isDelta && path !== lastPath) { st = null; lastPath = path; }
+        const lang = LANG_OF(path);
+        let tx;
+        if (meta) tx = esc(t);
+        else {
+          const r = hlLine(isDelta ? t.slice(1) : t, lang, st);
+          st = r.state;
+          tx = (isDelta ? esc(t[0] || '') : '') + r.html;
+        }
         return `<div class="ln ${cls}">
           <span class="plus" title="comment on this line"
             onclick="toggleCmt('${a}')">+</span>
@@ -386,7 +417,8 @@ function evBody(c, data) {
           ${ide && ide[1] ? `<span class="go" title="open in IDE"
             onclick="openIDE('${esc(ide[0])}', ${ide[1]})">→</span>` : ''}
         </div>${cmtBoxFor(a)}${cmtFor(c, a)}`;
-      }).join('')}</div>`;
+        }).join('');
+      })()}</div>`;
   }
   return data.count === 0
     ? `<div class="zero">0 lines selected — the absence, proven live.</div>`
