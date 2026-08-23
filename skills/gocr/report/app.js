@@ -157,6 +157,11 @@ function mdlite(s) {
 
 async function load() {
   A = await (await fetch('/api/artifact')).json();
+  // a deck server started before question triage existed still sends
+  // questions as bare strings - lift them so the slide never goes blank
+  for (const c of A.claims)
+    c.open_questions = c.open_questions.map(q =>
+      typeof q === 'string' ? { text: q, status: '' } : q);
   const legs = A.story.walk.length
     ? A.story.walk
     : A.claims.map(c => ({ id: c.id, why: '' }));
@@ -203,12 +208,47 @@ async function applyPath() {
   render();
 }
 
+// The problem is every state change rebuilds the whole slide, so posting
+// a comment or marking a question threw the reader back to the top and
+// dropped the input they were typing in.
+// The way we solve this is remembering the body's scroll and the focused
+// input (by its position among inputs, plus its draft and caret) around
+// the rebuild, and putting both back when the slide is the same one.
+// flow: every state change -> render() <-- HERE
 function render() {
+  const key = ev ? `ev:${ev.ci}:${ev.ei}` : `pos:${pos}`;
+  const body = $slide.querySelector('.body');
+  const snap = $slide.dataset.key === key && body ? {
+    top: body.scrollTop,
+    panes: [...$slide.querySelectorAll('.ev-pane')].map(p => p.scrollTop),
+    focus: (() => {
+      const a = document.activeElement;
+      if (!a || a.tagName !== 'INPUT') return null;
+      const ins = [...$slide.querySelectorAll('input')];
+      return { i: ins.indexOf(a), n: ins.length, v: a.value,
+               s: a.selectionStart, e: a.selectionEnd };
+    })(),
+  } : null;
   if (ev) renderEvidence();
   else if (pos === 0) renderTitle();
   else if (pos < base()) renderStory();
   else if (pos >= endPos()) renderEnd();
   else renderClaim();
+  $slide.dataset.key = key;
+  if (!snap) return;
+  const nb = $slide.querySelector('.body');
+  if (nb) nb.scrollTop = snap.top;
+  $slide.querySelectorAll('.ev-pane').forEach((p, i) => {
+    if (snap.panes[i] != null) p.scrollTop = snap.panes[i]; });
+  // Understand: only put the draft back when the slide still has the
+  // same inputs - after a comment box closes, the index would land on a
+  // different field and paste the draft there.
+  const ins = $slide.querySelectorAll('input');
+  if (snap.focus && snap.focus.i >= 0 && ins.length === snap.focus.n) {
+    const el = ins[snap.focus.i];
+    if (el) { el.value = snap.focus.v; el.focus();
+      el.setSelectionRange(snap.focus.s, snap.focus.e); }
+  }
 }
 
 // the cover's job: say what the change IS (story.summary) + the gate bar.
@@ -262,17 +302,27 @@ function gotoClaim(i) {
   syncPath();
 }
 
-// flow: serve deck — reader stamps (or steps past) the last claim and
-// lands on the record: verdict tally, what's still open, and the
-// hand-off line for the next agent
+// flow: serve deck — reader steps past the last claim and lands on the
+// record: what they wrote, what they marked, and the hand-off line for
+// the next agent. Only claims carrying work are listed.
 function renderEnd() {
-  const groups = { verified: [], refuted: [], trusted: [], unverified: [] };
-  walk.forEach(c => (groups[c.verdict] || groups.unverified).push(c));
   const nc = walk.reduce((n, c) => n + c.comments.length, 0);
-  const noq = walk.reduce((n, c) => n + c.open_questions.length, 0);
-  const row = (c) => `
+  const noq = walk.reduce((n, c) =>
+    n + c.open_questions.filter(q => q.status !== 'ignore').length, 0);
+  const nact = walk.reduce((n, c) =>
+    n + c.open_questions.filter(q => q.status === 'act').length, 0);
+  const work = walk.filter(c => c.comments.length
+    || c.open_questions.some(q => q.status === 'act'));
+  const row = (c) => {
+    const k = c.open_questions.filter(q => q.status === 'act').length;
+    return `
     <li onclick="gotoClaim(${walk.indexOf(c)})">
-      <span class="wid">${esc(c.id)}</span>${esc(c.title || c.id)}</li>`;
+      <span class="wid">${esc(c.id)}</span>${esc(c.title || c.id)}
+      <div class="lwhy">${[
+        c.comments.length ? `${c.comments.length} comment${
+          c.comments.length === 1 ? '' : 's'}` : '',
+        k ? `${k} to act on` : ''].filter(Boolean).join(' · ')}</div></li>`;
+  };
   $slide.className = 'card claim end-slide';
   $slide.innerHTML = `
     <div class="kicker"><span>the record · ${esc(A.repo)}</span>
@@ -280,21 +330,17 @@ function renderEnd() {
     <div class="body">
       <h2>End of the walk</h2>
       <div class="tally">
-        ${['verified', 'refuted', 'trusted', 'unverified'].map(v =>
-          groups[v].length
-            ? `<span class="pill v-${v}">${groups[v].length} ${v}</span>`
-            : '').join('')}
+        ${nc ? `<span class="pill">${nc} comment${nc === 1 ? '' : 's'}</span>` : ''}
+        ${nact ? `<span class="pill">${nact} to act on</span>` : ''}
+        ${!nc && !nact ? `<span class="pill">nothing marked</span>` : ''}
       </div>
-      <div class="meta">${nc} comment${nc === 1 ? '' : 's'} ·
-        ${noq} open question${noq === 1 ? '' : 's'} ·
+      <div class="meta">${noq} open question${noq === 1 ? '' : 's'} ·
         ${A.coverage.claimed}/${A.coverage.total} ${esc(A.coverage.unit)}</div>
-      ${groups.refuted.length ? `<div class="sec">refuted</div>
-        <ol class="walklist">${groups.refuted.map(row).join('')}</ol>` : ''}
-      ${groups.unverified.length ? `<div class="sec">not yet stamped</div>
-        <ol class="walklist">${groups.unverified.map(row).join('')}</ol>` : ''}
-      <div class="note">Everything you stamped and wrote is already in
+      ${work.length ? `<div class="sec">for the next agent</div>
+        <ol class="walklist">${work.map(row).join('')}</ol>` : ''}
+      <div class="note">Everything you wrote and marked is already in
         the yaml. Hand it to any agent: "read the gocr review and
-        address my comments, refuted claims, and open questions."</div>
+        address my comments and the questions marked act."</div>
     </div>
     <div class="nav"><button onclick="prev()">&lt;</button>
       <button onclick="pos=0;render();syncPath()">cover</button></div>`;
@@ -306,7 +352,7 @@ function renderClaim() {
   $slide.innerHTML = `
     <div class="kicker">
       <span>claim ${pos - base() + 1} / ${walk.length} · ${esc(c.id)}</span>
-      <span class="pill v-${esc(c.verdict)}">${esc(c.verdict)}</span></div>
+      <span></span></div>
     <div class="body">
       <h2>${esc(c.title || c.id)}</h2>
       <div class="tags">${c.tags.map(t => `<span>${esc(t)}</span>`).join('')}</div>
@@ -324,7 +370,16 @@ function renderClaim() {
           if(i.value.trim()) claimComment(i.value.trim())">post</button>
       </div>
       ${c.open_questions.length ? `<div class="sec">open questions</div>` : ''}
-      ${c.open_questions.map(q => `<div class="oq">${esc(q)}</div>`).join('')}
+      ${c.open_questions.map((q, qi) => `
+        <div class="oq ${q.status ? 'oq-' + q.status : ''}">
+          <div class="oq-t">${mdlite(q.text)}</div>
+          <div class="oq-acts">
+            <button class="q-act ${q.status === 'act' ? 'on' : ''}"
+              onclick="setQuestion(${qi}, 'act')">✓ act</button>
+            <button class="q-ignore ${q.status === 'ignore' ? 'on' : ''}"
+              onclick="setQuestion(${qi}, 'ignore')">✕ ignore</button>
+          </div>
+        </div>`).join('')}
       <div class="sec">evidence</div>
       ${c.evidence.map((e, i) => {
         const data = resCache[c.id + ':' + i];
@@ -340,12 +395,6 @@ function renderClaim() {
             ? `<div class="resolving">${esc(data.error)}</div>`
             : evBody(c, data)}</div>`;
       }).join('')}
-      <div class="sec">verdict</div>
-      <div class="verdicts">${['verified', 'refuted', 'trusted'].map(v => `
-        <button class="v-${v} ${c.verdict === v ? 'on' : ''}"
-          onclick="setVerdict('${v}')">${
-          {verified: '✓ verified', refuted: '✕ refuted', trusted: '~ trusted'}[v]
-        }</button>`).join('')}</div>
     </div>
     <div class="nav">
       <button onclick="prev()">&lt;</button>
@@ -517,16 +566,21 @@ async function stepEvidence(d) {
   syncPath();
 }
 
-// stamping a verdict advances to the next claim — the stamp is the
-// "done with this slide" gesture; un-stamping stays put
-async function setVerdict(v) {
+// The problem is the conductor's doubts need a quick human triage on
+// the slide: this one matters, that one doesn't - so the next agent
+// knows which to work on.
+// The way we solve this is a tri-state per question (blank / act /
+// ignore) written straight to the yaml; clicking the lit state clears it.
+// flow: claim slide question buttons -> setQuestion() <-- HERE
+async function setQuestion(qi, status) {
   const c = walk[pos - base()];
-  const val = c.verdict === v ? 'unverified' : v;
-  await fetch('/api/verdict', { method: 'POST',
-    body: JSON.stringify({ claim: c.id, verdict: val }) });
-  c.verdict = val;
-  if (val !== 'unverified') next();  // last claim's stamp lands on the record
-  else render();
+  const q = c.open_questions[qi];
+  const val = q.status === status ? '' : status;
+  const r = await (await fetch('/api/question', { method: 'POST',
+    body: JSON.stringify({ claim: c.id, idx: qi, status: val }) })).json();
+  if (r.error) { alert(r.error); return; }
+  q.status = val;
+  render();
 }
 
 async function claimComment(text) {
@@ -534,6 +588,8 @@ async function claimComment(text) {
   await fetch('/api/comment', { method: 'POST',
     body: JSON.stringify({ claim: c.id, text }) });
   c.comments.push({ at: null, text });
+  const a = document.activeElement;
+  if (a && a.classList.contains('cmt-in')) a.value = '';  // posted: clear
   render();
 }
 

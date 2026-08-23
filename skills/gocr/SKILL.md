@@ -73,18 +73,17 @@ message — you add the URL, not commentary.
 
 The artifact is the handoff — it lives in the reviewed repo at
 `.gocr/<name>/review.yaml`, so "read the gocr review and address it" is
-the entire integration. Three signals, in priority order:
+the entire integration. Two signals, in priority order:
 
 1. **`comments`** — the reviewer's work items. Each may carry an `at:`
    anchor (source:selection, pinned to the omega sha): resolve it with
    `gocr.py resolve` or `git show` to the exact lines meant. Check
    drift (pinned content vs working tree) before editing — the code may
    have moved since the review.
-2. **`verdict: refuted`** — the reviewer judged that claim false.
-   Either the code is wrong (fix it) or the claim was (note it); find
-   out which before touching anything.
-3. **`open_questions`** — doubts recorded during review; treat
-   unaddressed ones as backlog candidates.
+2. **`open_questions`** — doubts recorded during review. The reviewer
+   may triage each one in the report: an item rewritten as
+   `- status: act` + `text:` is a work item; `status: ignore` means
+   drop it; a plain item is untriaged — treat as a backlog candidate.
 
 When work changes the code a claim describes, re-run
 `gocr.py coverage`/`resolve` at a new omega to see which claims still

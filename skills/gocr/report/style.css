@@ -1,6 +1,6 @@
 /* GOCR report — the examination instrument.
    Two voices: mono for everything the machine asserts (anchors, recipes,
-   coverage, stamps), Charter for everything a human wrote (claims, notes,
+   coverage, marks), Charter for everything a human wrote (claims, notes,
    comments). Saturation is reserved for judgment. */
 
 :root {
@@ -17,9 +17,8 @@
   --dim: #8b9096;
   --faint: #62666c;
   /* judgment — the only saturation */
-  --ok: #58b878;      /* verified */
-  --bad: #d4645f;     /* refuted */
-  --trust: #c79a4e;   /* trusted (bronze: taken on faith) */
+  --ok: #58b878;      /* act: the reviewer wants this worked */
+  --bad: #d4645f;     /* ignore: the reviewer let it go */
   /* machine-interactive */
   --steel: #7fb2d9;
   --steel-dim: rgba(127, 178, 217, .12);
@@ -201,7 +200,7 @@ button:disabled { opacity: .3; cursor: default; }
   margin: 2px 0 2px 22px;
 }
 
-/* end slide: the verdict tally reads as a row of stamps */
+/* end slide: the tally of what the reviewer marked, as a row of stamps */
 .tally {
   display: flex;
   gap: 10px;
@@ -335,12 +334,26 @@ code {
 }
 
 .oq {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
   font-size: 15px;
   margin: 8px 0 8px 2px;
+  padding: 6px 10px 6px 12px;
   max-width: 68ch;
   color: var(--body-c);
+  border-left: 2px solid var(--line);
 }
-.oq::before { content: "☐ "; color: var(--faint); }
+.oq-t { flex: 1; }
+.oq-t p { margin: 0 0 6px; }
+.oq-t p:last-child { margin-bottom: 0; }
+.oq-acts { display: flex; gap: 6px; flex-shrink: 0; }
+.oq-acts button { padding: 3px 8px; font-size: 11px; letter-spacing: .06em; }
+.oq-acts button.on { border: 1.5px solid currentColor; font-weight: 700; }
+/* the reviewer's triage, legible at a glance: act is lit, ignore fades */
+.oq-act { border-left-color: var(--steel); }
+.oq-ignore { opacity: .45; }
+.oq-ignore .oq-t { text-decoration: line-through; }
 
 /* comments: the reviewer's voice on the record — conversation layer,
    steel like all live human action, Charter like all human speech,
@@ -382,38 +395,21 @@ code {
 .cmt-go { padding: 4px 10px; font-size: 11.5px; }
 .cmt-in::placeholder, .cmt-box input::placeholder { color: var(--faint); }
 
-/* ── the verdict: stamps on the record ────────────────────────── */
-/* pending = dashed outline waiting for ink; stamped = solid + tilt */
-
+/* ── pills: mono caps chips on the record ─────────────────────── */
 .pill {
   font-family: var(--mono);
   font-size: 10.5px;
   letter-spacing: .12em;
   text-transform: uppercase;
+  padding: 3px 9px;
   border-radius: 3px;
-  padding: 3px 10px;
-}
-.pill.v-unverified {
+  border: 1.5px solid currentColor;
   color: var(--dim);
-  border: 1px dashed var(--line-strong);
-}
-.pill.v-verified, .pill.v-refuted, .pill.v-trusted {
-  border: 1.5px solid currentColor;
   font-weight: 700;
   transform: rotate(-1.5deg);
 }
-.v-verified { color: var(--ok); }
-.v-refuted { color: var(--bad); }
-.v-trusted { color: var(--trust); }
-.v-unverified { color: var(--dim); }
-
-.verdicts { display: flex; gap: 8px; margin-bottom: 4px; }
-.verdicts button { letter-spacing: .06em; }
-.verdicts button.on {
-  border: 1.5px solid currentColor;
-  font-weight: 700;
-  transform: rotate(-1.5deg);
-}
+.q-act { color: var(--ok); }
+.q-ignore { color: var(--bad); }
 
 /* ── evidence slide: the specimen ─────────────────────────────── */
 
@@ -542,7 +538,7 @@ code {
 .ide:hover { color: var(--steel); text-decoration: underline; }
 
 @media (prefers-reduced-motion: no-preference) {
-  .pill, .verdicts button { transition: transform .12s ease; }
+  .pill, .oq-acts button { transition: transform .12s ease; }
 }
 
 /* explicit toggle overrides the OS preference (localStorage-persisted) */

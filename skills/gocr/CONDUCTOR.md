@@ -37,7 +37,7 @@ The artifact (`review.yaml`) stores **recipes, never results** —
 methods of surgically pulling out the lines to talk about, resolved
 live against the pinned shas, so nothing in it can quietly go stale.
 The human walks the claims in a slide deck, checks the evidence
-inline, and stamps verdicts.
+inline, writes comments, and marks each open question act or ignore.
 
 Tool: `python3 <dir-of-this-file>/gocr.py` (it sits beside this
 document). Run it from the repo root — alpha/omega resolution shells
@@ -78,9 +78,9 @@ the faster and easier they can walk it, the more they contribute back.
    estimated minutes. Ordering is ordinal and every ordering reason
    must be mechanical and checkable ("wired into 4 files", "shares
    _BAROMETER_SPEC with C1") — never vibes.
-5. **Verdicts belong to the human.** Every claim ships
-   `verdict: unverified`. Never mark verified/refuted/trusted;
-   machine doubt goes in `open_questions`.
+5. **Judgment belongs to the human.** Generators never mark a claim
+   right or wrong; machine doubt goes in `open_questions`, and the
+   human marks those act or ignore in the report.
 6. **Everything is pinned to shas.** `alpha`/`omega` are exact shas
    in the header; the delta derives from them, so no diff file ships
    by default. Pinning is what makes plain line ranges stable and
@@ -182,7 +182,7 @@ falsifiability test failing, and they die visibly (a
   (rule 1). A doubt that shadows an existing claim is an
   `open_questions` entry there; a problem that stands on its own
   becomes its own claim tagged `finding`, anchored like any other, so
-  it gets its own slide and the human stamps the verdict.
+  it gets its own slide and the human judges it there.
 - Anything the human reviewer's directives asked to be examined gets
   examined — and what that examination finds lands in the artifact
   as evidence, open questions, or finding claims, like everything
@@ -202,8 +202,8 @@ hat properly: investigate the unclaimed lines, don't paper over them.
 **5. Editor — a fresh reader.** Once the gate is clean, the Editor
 reads only the yaml and the writing rules — not the diff — and
 rewrites every reader-facing string that reads poorly until it reads
-well aloud. It touches nothing else: ids, tags, evidence, anchors and
-verdicts stay byte-for-byte. Packaging changes; claims don't — every
+well aloud. It touches nothing else: ids, tags, evidence and anchors
+stay byte-for-byte. Packaging changes; claims don't — every
 fact, number and name survives. A sentence the Editor cannot
 understand is not readable: it goes back to the Detective as a
 question, never gets paraphrased on a guess. Spawn the Editor fresh
@@ -223,7 +223,7 @@ directives requested verification ("gocr verify"), spawn one skeptic
 per contested claim, prompted to REFUTE it from the evidence. A
 skeptic that finds a problem appends an `open_questions` entry
 prefixed with its lens (`"[skeptic:correctness] ..."`); one that
-finds nothing writes nothing. Skeptics never touch `verdict`.
+finds nothing writes nothing.
 
 **8. Hand over.** Return exactly two things to the spawning session:
 the review.yaml path, and a short hand-over note written per the
@@ -272,7 +272,6 @@ claims:
       earns its place by saying what resolution can't show; prose that
       narrates what a recipe returns is a cached result and will rot.
     tags: [feature]
-    verdict: unverified           # human-owned; generator never sets more
     comments:                     # written by the report UI, not generators
       - text: "claim-level reviewer comment"
       - at: omega:src/api/tools.py:203-203   # line-anchored, same grammar;
@@ -354,7 +353,7 @@ order. A pipeline that selects nothing is STALE to the gate. Remember
 Coverage — change mode: `delta` ranges and `in: delta` greps claim
 changed lines; `alpha`/`omega` evidence is citable, never gated.
 Explore mode: `omega` ranges and greps cite files; every scope file must
-be cited (breadth, not depth — depth is what claims and verdicts are
+be cited (breadth, not depth — depth is what claims are
 for). Pinned shas make plain line ranges stable; recipes make every
 proof re-runnable — including at future commits, where a re-run of an
 omega recipe tells you whether the claim still holds. Stats are derived
@@ -367,8 +366,8 @@ The report is a slide deck served live over (yaml + repo): cover (the
 story `summary` + coverage bar) → story slide (the walk as a clickable
 itinerary, each leg with its why) → one slide per claim in walk order,
 open questions above the evidence, every evidence recipe resolved
-inline on the slide → an end slide tallying verdicts and what is
-still open. Verdict buttons and the reviewer's comments write
-straight back into review.yaml — comments are anchored by the same
+inline on the slide → an end slide listing what the reviewer marked
+for the next agent. Question marks (act / ignore) and the reviewer's
+comments write straight back into review.yaml — comments are anchored by the same
 source:selection grammar and are testimony, never evidence: they don't
 touch coverage.

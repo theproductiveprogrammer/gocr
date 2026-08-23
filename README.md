@@ -53,13 +53,13 @@ In any repo, in Claude Code:
 - `gocr <sha|branch|PR>` — claim-based review of a change
 - `gocr explore <area>` — map a subsystem or the whole repo
 - `gocr serve` — open the report: a slide deck with live evidence
-  resolution, IDE jump, per-line comments, and verdict stamps that
-  write straight back into the artifact
+  resolution, IDE jump, per-line comments, and act/ignore marks on
+  open questions that write straight back into the artifact
 
 The artifact is a single `review.yaml` in the reviewed repo
 (`.gocr/<name>/`). Handing the review's outcomes to a coding agent is
-one sentence: *"read the gocr review and address my comments, refuted
-claims, and open questions."*
+one sentence: *"read the gocr review and address my comments and the
+questions marked act."*
 
 ## The rules that make it trustworthy
 
@@ -70,7 +70,8 @@ claims, and open questions."*
 2. The coverage gate must pass — unclaimed changes fail loudly.
 3. Evidence is declarative recipes (line ranges and grep pipelines
    over pinned shas) — resolved live, never cached.
-4. Verdicts belong to the human.
+4. Judgment belongs to the human — generators never mark a claim
+   right or wrong.
 
 The hand-off protocol lives in
 [skills/gocr/SKILL.md](skills/gocr/SKILL.md); the pipeline the

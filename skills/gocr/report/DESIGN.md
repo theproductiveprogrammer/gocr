@@ -7,13 +7,14 @@ hairlines). Any future restyle starts from this brief.
 ## Concept
 
 An **examination instrument**: claims under a light, evidence resolved
-live, a human stamping verdicts. Chrome recedes; the claim is a
-document; code is the specimen; judgment is the only loud thing.
+live, a human marking what needs work. Chrome recedes; the claim is
+a document; code is the specimen; the human's marks are the only
+loud thing.
 
 ## The two voices (the structural type rule)
 
 - **Machine voice = mono** (`ui-monospace`): kickers, anchors, recipes,
-  chips, badges, coverage, stamps, buttons. Everything the system
+  chips, badges, coverage, marks, buttons. Everything the system
   asserts.
 - **Human voice = Charter** (system serif; falls back Iowan/Georgia):
   claim titles + bodies, notes, open questions, comments. Everything a
@@ -28,8 +29,8 @@ Graphite housing, four elevations: `--bg` → `--surface` (chrome bars) →
 `--paper` (reading surface) → `--raise` (code, chips). Cold cast.
 
 Saturation is **reserved for judgment**:
-- `--ok` green = verified, `--bad` red = refuted, `--trust` bronze =
-  trusted. **Unverified is neutral** — pending is not a warning.
+- `--ok` green = a question marked *act*, `--bad` red = *ignore*.
+  **Unmarked is neutral** — pending is not a warning.
 - `--steel` (desaturated blue) = live human action: focus, hover, the
   coverage bar, and the reviewer's **comments** (rule + text — the
   conversation layer wears steel; Charles picked the color). Used
@@ -40,14 +41,14 @@ shadows, big rounded containers.
 
 Syntax highlighting obeys the same law: weight and shade only —
 keywords bold ink, comments faint italic, strings dim. Never a hue;
-colored code would shout over the verdicts.
+colored code would shout over the reviewer's marks.
 
-## The signature: verdict stamps
+## The signature: the reviewer's marks
 
-- Pending: dashed pill, dim — an outline waiting for ink.
-- Stamped: 1.5px solid currentColor, mono caps, 700, rotated −1.5°.
-  The tilt appears ONLY where a human acted. Same treatment on the
-  active verdict button.
+- Unmarked: plain outlined button, dim.
+- Marked: 1.5px solid currentColor, 700. The record's tally pills
+  carry the same ink plus a −1.5° tilt — the tilt appears ONLY where
+  a human acted.
 
 ## Deck shape (every slide has one job)
 
@@ -61,10 +62,11 @@ colored code would shout over the verdicts.
 - **Claim slides** — one assertion under the light, its evidence
   resolved inline beneath it. The code is visible on the slide itself,
   never hidden behind a click; a recipe click opens a focus slide, it
-  doesn't reveal. Stamping a verdict advances to the next slide.
-- **End slide (the record)** — verdict tally as a row of stamps,
-  jump-back lists for refuted and not-yet-stamped claims, and the
-  hand-off line. The walk closes; it doesn't just stop.
+  doesn't reveal. Open questions sit above the evidence, each with
+  act / ignore marks.
+- **End slide (the record)** — the tally of comments and act-marks
+  as a row of stamps, a jump-back list of the claims carrying work,
+  and the hand-off line. The walk closes; it doesn't just stop.
 
 ## Density philosophy
 

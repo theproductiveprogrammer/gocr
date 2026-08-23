@@ -609,8 +609,40 @@ def _block_scalar(lines: list[str], i: int, key_indent: int) -> tuple[str, int]:
     return "\n".join(out), i
 
 
+# The problem is a question is either the conductor's plain item
+# (`- >` block or `- one-liner`) or, once the reviewer has triaged it,
+# a mapping carrying `status: act|ignore` beside the text.
+# The way we solve this is reading one item in either shape into
+# {text, status}; returns (None, i) when the line isn't an item.
+# flow: parse_claims() -> _question_item() <-- HERE
+def _question_item(lines: list[str], i: int) -> tuple[dict | None, int]:
+    m = re.match(r"^      - (status|text):\s*(.*?)\s*$", lines[i])
+    if m:
+        q = {"text": "", "status": ""}
+        key, val = m.groups()
+        i += 1
+        while True:
+            if key == "text" and val in (">", ">-", "|", ""):
+                q["text"], i = _block_scalar(lines, i, 8)
+            else:
+                q[key] = _clean(val)
+            m = re.match(r"^        (status|text):\s*(.*?)\s*$", lines[i]) \
+                if i < len(lines) else None
+            if not m:
+                return q, i
+            key, val = m.groups()
+            i += 1
+    m = re.match(r"^      - >?-?\s*(.*?)\s*$", lines[i])
+    if not m:
+        return None, i
+    if m.group(1):
+        return {"text": _clean(m.group(1)), "status": ""}, i + 1
+    q, i = _block_scalar(lines, i + 1, 6)
+    return {"text": q, "status": ""}, i
+
+
 # The problem is the report needs the full claim structure - text, note,
-# tags, verdict, evidence, open questions, comments - not just anchors.
+# tags, evidence, open questions, comments - not just anchors.
 # The way we solve this is slicing the claims section into per-claim
 # blocks and reading each field with the same narrow regexes the rest of
 # the tool uses; the format is ours, so this stays honest.
@@ -627,7 +659,7 @@ def parse_claims(review_text: str) -> list[dict]:
         m = re.match(r"^  - id:\s*(\S+)\s*$", line)
         if m:
             cur = {"id": m.group(1), "title": "", "text": "", "note": "",
-                   "tags": [], "verdict": "unverified", "open_questions": [],
+                   "tags": [], "open_questions": [],
                    "comments": []}
             claims.append(cur)
             i += 1
@@ -651,23 +683,13 @@ def parse_claims(review_text: str) -> list[dict]:
             cur["tags"] = [t.strip() for t in m.group(1).split(",") if t.strip()]
             i += 1
             continue
-        m = re.match(r"^    verdict:\s*(\S+)", line)
-        if m:
-            cur["verdict"] = m.group(1)
-            i += 1
-            continue
         if re.match(r"^    open_questions:\s*$", line):
             i += 1
             while i < len(lines):
-                m = re.match(r"^      - >?-?\s*(.*?)\s*$", lines[i])
-                if not m:
+                q, i = _question_item(lines, i)
+                if q is None:
                     break
-                if m.group(1):
-                    cur["open_questions"].append(_clean(m.group(1)))
-                    i += 1
-                else:
-                    q, i = _block_scalar(lines, i + 1, 6)
-                    cur["open_questions"].append(q)
+                cur["open_questions"].append(q)
             continue
         if re.match(r"^    comments:\s*$", line):
             i += 1
@@ -791,25 +813,43 @@ def _claim_span(lines: list[str], claim_id: str) -> tuple[int, int]:
     return start, end
 
 
-# The problem is the report's one mutation - verdicts and reviewer
-# comments - must land in review.yaml, which stays the single source of
-# truth.
-# The way we solve this is line surgery on the claim's block: replace the
-# verdict line in place; append comments under a comments: key inserted
-# after the verdict.
-# flow: report `POST /api/verdict` -> set_verdict() <-- HERE
-def set_verdict(yaml_path: str, claim_id: str, verdict: str) -> None:
-    if verdict not in ("unverified", "verified", "refuted", "trusted"):
-        raise ValueError(f"bad verdict {verdict!r}")
+# The report's mutations - question triage and reviewer comments -
+# land in review.yaml by line surgery on the claim's block; the yaml
+# stays the single source of truth.
+
+# The problem is the reviewer triages each open question - "act on
+# this" or "ignore it" - and that decision must reach the agent that
+# later reads the yaml, not just the screen.
+# The way we solve this is rewriting the nth question item as a mapping
+# (`- status: act` / `text: >` body), or back to a plain `- text:` item
+# when the status is cleared; the body lines are kept verbatim.
+# flow: report `POST /api/question` -> set_question() <-- HERE
+def set_question(yaml_path: str, claim_id: str, idx: int, status: str) -> None:
+    if status not in ("", "act", "ignore"):
+        raise ValueError(f"bad status {status!r}")
     lines = _read(yaml_path).splitlines()
     start, end = _claim_span(lines, claim_id)
-    for i in range(start, end):
-        if re.match(r"^    verdict:", lines[i]):
-            lines[i] = f"    verdict: {verdict}"
+    i = next((k for k in range(start, end)
+              if re.match(r"^    open_questions:\s*$", lines[k])), None)
+    if i is None:
+        raise ValueError(f"claim {claim_id} has no open_questions")
+    i += 1
+    n = 0
+    while i < end:
+        q, j = _question_item(lines, i)
+        if q is None:
             break
-    else:
-        lines.insert(start + 1, f"    verdict: {verdict}")
-    open(yaml_path, "w").write("\n".join(lines) + "\n")
+        if n == idx:
+            head = "        " if status else "      - "
+            item = ([f"      - status: {status}"] if status else []) \
+                + [head + "text: >"] \
+                + ["          " + l for l in q["text"].split("\n")]
+            lines[i:j] = item
+            open(yaml_path, "w").write("\n".join(lines) + "\n")
+            return
+        n += 1
+        i = j
+    raise ValueError(f"claim {claim_id} has no question #{idx}")
 
 
 # flow: report `POST /api/comment` -> add_comment() <-- HERE
@@ -829,12 +869,11 @@ def add_comment(yaml_path: str, claim_id: str, text: str,
             lines[j:j] = item
             break
     else:
-        for i in range(start, end):
-            if re.match(r"^    verdict:", lines[i]):
-                lines[i + 1:i + 1] = ["    comments:"] + item
-                break
-        else:
-            raise ValueError(f"claim {claim_id} has no verdict line to anchor on")
+        # no comments: key yet - open one at the end of the claim block
+        j = end
+        while j > start + 1 and not lines[j - 1].strip():
+            j -= 1
+        lines[j:j] = ["    comments:"] + item
     open(yaml_path, "w").write("\n".join(lines) + "\n")
 
 
@@ -873,11 +912,11 @@ def remove_comment(yaml_path: str, claim_id: str, text: str,
     raise ValueError("comment not found")
 
 
-# The problem is the report must be interactive - live resolution, verdict
+# The problem is the report must be interactive - live resolution, question
 # flips, anchored comments, IDE jumps - which a static render can't do.
 # The way we solve this is a dependency-free local server over the yaml
 # and repo: /api/* is interpreted (resolution through the same functions
-# as the CLI, writes through set_verdict/add_comment), /static/* is
+# as the CLI, writes through set_question/add_comment), /static/* is
 # couriered from the report/ folder, and every other path returns
 # index.html so the client router owns the URL (refresh and back work).
 # flow: CLI `gocr.py serve <review.yaml>` -> serve() <-- HERE
@@ -955,12 +994,13 @@ def serve(yaml_path: str, port: int = 7345) -> None:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
             try:
-                if self.path == "/api/verdict":
-                    set_verdict(yaml_path, body["claim"], body["verdict"])
-                    self._json({"ok": True})
-                elif self.path == "/api/comment":
+                if self.path == "/api/comment":
                     add_comment(yaml_path, body["claim"], body["text"],
                                 body.get("at"))
+                    self._json({"ok": True})
+                elif self.path == "/api/question":
+                    set_question(yaml_path, body["claim"], int(body["idx"]),
+                                 body.get("status", ""))
                     self._json({"ok": True})
                 elif self.path == "/api/uncomment":
                     remove_comment(yaml_path, body["claim"], body["text"],
