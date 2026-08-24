@@ -69,18 +69,63 @@ message — you add the URL, not commentary.
 
 `gocr serve` on its own (an existing review.yaml) is just step 4.
 
+## Campaigns (one change across several repos)
+
+When the same change spans sibling repos (a contract in one, its
+producer and consumers in others), each repo still gets its own
+independent review — plus one `campaign.yaml` that binds them into a
+single deck. As the triggering session:
+
+1. **Pin per repo** and pick a **lead repo** — the one you're in, or
+   the one holding the primary change. Use one short `<name>` for
+   every repo's artifact directory (`.gocr/<name>/` in each).
+2. **Spawn one Conductor per repo, in parallel** — each brief exactly
+   as above, scoped to its own repo. They never see each other.
+3. **When all return, spawn the Weaver** — one fresh subagent. Its
+   brief: the finished review.yaml paths (nothing else), and "Read
+   <skill-base-dir>/CONDUCTOR.md § The Weaver and follow it. Return
+   the campaign.yaml path and your hand-over note."
+4. **Serve the campaign**: `python3 <skill-base-dir>/gocr.py serve
+   .gocr/<name>/campaign.yaml [port]` from the lead repo root.
+
+The campaign file (in the lead repo, `.gocr/<name>/campaign.yaml`):
+
+```yaml
+kind: campaign
+name: <name>
+title: <one line for the cover>
+members:
+  - repo: .                      # path relative to the lead repo root
+    review: <name>               # its .gocr/<review>/ directory
+    name: lead                   # short label; claims render as lead:C1
+  - repo: ../sibling-repo
+    review: <name>
+    name: common
+story:                           # same shape as a review story;
+  walk:                          # legs use member-prefixed ids
+    - common:C3: the contract changes first
+    - lead:C1: the consumer follows
+```
+
+Member reviews stay byte-identical to lone reviews; `serve` and
+`coverage` accept either file. The campaign gate passes only when
+every member's gate passes.
+
 ## Acting on a review (any agent, any later session)
 
 The artifact is the handoff — it lives in the reviewed repo at
 `.gocr/<name>/review.yaml`, so "read the gocr review and address it" is
-the entire integration. Two signals, in priority order:
+the entire integration. The signals, in priority order:
 
 1. **`comments`** — the reviewer's work items. Each may carry an `at:`
    anchor (source:selection, pinned to the omega sha): resolve it with
    `gocr.py resolve` or `git show` to the exact lines meant. Check
    drift (pinned content vs working tree) before editing — the code may
    have moved since the review.
-2. **`open_questions`** — doubts recorded during review. The reviewer
+2. **`campaign:`** — a header line in a member review pointing at
+   its campaign.yaml (relative to that repo's root); follow it when
+   the work spans repos.
+3. **`open_questions`** — doubts recorded during review. The reviewer
    may triage each one in the report: an item rewritten as
    `- status: act` + `text:` is a work item; `status: ignore` means
    drop it; a plain item is untriaged — treat as a backlog candidate.
@@ -94,8 +139,9 @@ hold — the recipes are re-runnable by design.
 `python3 <skill-base-dir>/gocr.py` — the base directory is shown in
 the "Base directory for this skill" line when this skill loads. Run
 from the repo root.
-- `serve review.yaml [port]` — the report: a local story-deck UI
-- `coverage review.yaml` — the gate (self-describing via the yaml)
+- `serve review.yaml|campaign.yaml [port]` — the report: a local
+  story-deck UI (a campaign renders all members as one deck)
+- `coverage review.yaml|campaign.yaml` — the gate (self-describing)
 - `resolve review.yaml <selection | claim-id>` — show what evidence names
 - `stats review.yaml` — per-claim mechanical signals
 - `files <diff-path-or-url>` — per-file shape of a diff

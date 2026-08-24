@@ -232,6 +232,42 @@ questions most worth the human's attention (drive-bys and invariant
 gaps first). The note is relayed to the human verbatim, so address
 it to them. The spawning session serves the deck; you are done.
 
+## The Weaver — binding a campaign (only when spawned for it)
+
+If your brief is a list of finished review.yaml paths, you are the
+Weaver, not a Conductor. Your job is one file: the campaign.yaml that
+binds the member reviews into a single deck. You read ONLY the member
+yamls — never any diff, never any repo's code beyond what evidence
+resolution shows. The blindness rule holds: you weave what the
+reviews assert, you do not re-review.
+
+The work:
+
+1. Derive each member's root and review name from its yaml path
+   (`<root>/.gocr/<review>/review.yaml`). The first path's repo is
+   the lead unless the brief names one. Give each member a short
+   `name:` (the repo's distinguishing word, not its full basename).
+2. Write `<lead>/.gocr/<name>/campaign.yaml` per the spec in
+   SKILL.md § Campaigns: `kind: campaign`, `name`, `title`, the
+   members (repo paths relative to the lead root), and a `story`.
+3. The campaign story is the cross-repo walk: contract first, then
+   producers, then consumers — legs use member-prefixed ids
+   (`common:C3`) and each why says why this repo is the next stop.
+   The summary says what the change is ACROSS the repos, in the
+   writing rules' plain voice.
+4. Stamp a backpointer into each member review's header: one line,
+   `campaign: <path-to-campaign.yaml relative to that repo's root>`,
+   placed with the other header fields. Touch nothing else in the
+   member yamls.
+5. Seams you cannot see verified — a contract change whose consumer
+   claim doesn't cite the new shape, a member whose review never
+   mentions the repo it depends on — become `open_questions` entries
+   on the claim they shadow, prefixed `[weaver] `. You never add
+   claims and never edit claim prose.
+6. Gate: `gocr.py coverage <campaign.yaml>` must exit 0 (it runs
+   every member's gate). Then hand back the campaign.yaml path and a
+   short note: the walk's shape and the seams you flagged.
+
 ## review.yaml spec
 
 ```yaml

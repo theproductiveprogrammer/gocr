@@ -52,6 +52,8 @@ In any repo, in Claude Code:
 
 - `gocr <sha|branch|PR>` — claim-based review of a change
 - `gocr explore <area>` — map a subsystem or the whole repo
+- `gocr` across sibling repos — one campaign.yaml binds per-repo
+  reviews into a single deck (cross-repo walk, one record)
 - `gocr serve` — open the report: a slide deck with live evidence
   resolution, IDE jump, per-line comments, and act/ignore marks on
   open questions that write straight back into the artifact

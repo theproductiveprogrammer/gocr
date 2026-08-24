@@ -267,6 +267,17 @@ function renderTitle() {
       <div class="meta">${A.coverage.claimed}/${A.coverage.total}
         ${esc(A.coverage.unit)}${A.coverage.stale.length
           ? ` · ${A.coverage.stale.length} stale` : ''}</div>
+      ${(A.members || []).map(m => {
+        const p = m.coverage.total
+          ? Math.round(100 * m.coverage.claimed / m.coverage.total) : 0;
+        return `
+        <div class="member">
+          <span class="mname">${esc(m.name)}</span>
+          <span class="mref">${esc(m.ref)}</span>
+          <span class="mbar"><i style="width:${p}%"></i></span>
+          <span class="mcov">${m.coverage.claimed}/${m.coverage.total}</span>
+        </div>`;
+      }).join('')}
       ${A.story.summary
         ? `<div class="summary">${mdlite(A.story.summary)}</div>` : ''}
     </div>
@@ -598,21 +609,30 @@ async function claimComment(text) {
 // The way we solve this is building the equivalent shell command (git
 // show / git grep / git diff piped through grep -E) for the evidence on
 // screen, behind a copy icon.
+function repoCtx() {
+  const c = walk[ev ? ev.ci : pos - base()];
+  return { alpha: (c && c.alpha) || A.alpha,
+           omega: (c && c.omega) || A.omega,
+           root: (c && c.root) || null };
+}
+
 let currentCmd = '';
 function shellCmd(e, data) {
   const q = (s) => "'" + s.replace(/'/g, "'\\''") + "'";
+  const r = repoCtx();
+  const git = r.root ? `git -C ${q(r.root)}` : 'git';
   if (e.kind === 'at') {
     const m = e.raw.match(/^(alpha|omega|delta):(?:(.+):)?(\d+)-(\d+)$/);
     if (!m) return '';
     const [, src, path, a, b] = m;
     if (src === 'delta')
-      return `git diff ${A.alpha} ${A.omega} | sed -n '${a},${b}p'`;
-    return `git show ${q(A[src] + ':' + path)} | sed -n '${a},${b}p'`;
+      return `${git} diff ${r.alpha} ${r.omega} | sed -n '${a},${b}p'`;
+    return `${git} show ${q(r[src] + ':' + path)} | sed -n '${a},${b}p'`;
   }
   let cmd = e.in === 'delta'
-    ? `git diff ${A.alpha} ${A.omega} | awk '/^diff --git/{p=substr($4,3)}` +
+    ? `${git} diff ${r.alpha} ${r.omega} | awk '/^diff --git/{p=substr($4,3)}` +
       ` /^[+-]/ && !/^\\+\\+\\+/ && !/^---/ {print p":"$0}'`
-    : `git grep -nI -e "" ${A[e.in]} | sed 's/^[^:]*://'`;
+    : `${git} grep -nI -e "" ${r[e.in]} | sed 's/^[^:]*://'`;
   for (const p of e.pipeline) {
     const neg = p.startsWith('!');
     const pat = neg ? p.slice(1) : p;
@@ -660,7 +680,7 @@ async function submitLineComment(anchor, text) {
 async function openIDE(path, line) {
   if (!path) return;
   const r = await (await fetch('/api/open', { method: 'POST',
-    body: JSON.stringify({ path, line }) })).json();
+    body: JSON.stringify({ path, line, root: repoCtx().root }) })).json();
   if (r.error) alert(r.error);
 }
 

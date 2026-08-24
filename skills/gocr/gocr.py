@@ -28,6 +28,8 @@ repo-less review of a fetched .diff); alpha/omega resolve via
 
 Commands:
   gocr.py coverage <review.yaml>          the gate (mode-aware)
+  gocr.py coverage <campaign.yaml>        every member's gate, labeled
+  gocr.py serve    <review.yaml|campaign.yaml> [port]   the report
   gocr.py resolve  <review.yaml> <sel>    print what a selection names
   gocr.py resolve  <review.yaml> <claim>  resolve every evidence entry of a claim
   gocr.py stats    <review.yaml>          per-claim mechanical signals
@@ -48,8 +50,9 @@ def _read(path_or_url: str) -> str:
     return open(path_or_url).read()
 
 
-def _git(*args: str) -> str:
-    proc = subprocess.run(["git", *args], capture_output=True, text=True)
+def _git(*args: str, root: str = ".") -> str:
+    proc = subprocess.run(["git", "-C", root, *args],
+                          capture_output=True, text=True)
     if proc.returncode not in (0, 1):
         sys.exit(f"git {args[0]} failed (run from the repo root): "
                  + proc.stderr.strip()[:200])
@@ -86,6 +89,9 @@ def yaml_meta(review_text: str, yaml_dir: str) -> dict:
         "omega": field("omega"),
         "delta": os.path.join(yaml_dir, delta) if delta else None,
         "scope": scope,
+        # the repo the shas live in; "." for a lone review (run from the
+        # repo root), a member's directory when part of a campaign
+        "root": ".",
     }
 
 
@@ -95,7 +101,7 @@ def delta_text(meta: dict) -> str:
     if meta["delta"]:
         return _read(meta["delta"])
     if meta["alpha"] and meta["omega"]:
-        return _git("diff", meta["alpha"], meta["omega"])
+        return _git("diff", meta["alpha"], meta["omega"], root=meta["root"])
     sys.exit("change block needs alpha+omega (or an explicit delta: file)")
 
 
@@ -218,9 +224,9 @@ def _delta_stream(changed: list[tuple[int, str, str]]) -> list[tuple]:
 
 
 # All lines of a pinned universe as (path, "path:lineno:content").
-def _universe_stream(sha: str) -> list[tuple]:
+def _universe_stream(sha: str, root: str = ".") -> list[tuple]:
     out, prefix = [], sha + ":"
-    for line in _git("grep", "-nI", "-e", "", sha).splitlines():
+    for line in _git("grep", "-nI", "-e", "", sha, root=root).splitlines():
         if line.startswith(prefix):
             rendered = line[len(prefix):]
             out.append((rendered.split(":", 1)[0], rendered))
@@ -292,7 +298,8 @@ def coverage_explore_data(meta: dict, text: str) -> dict:
     if not meta["scope"]:
         sys.exit("explore block needs a scope")
     tree = [(p, p) for p in
-            _git("ls-tree", "-r", "--name-only", meta["omega"]).splitlines()]
+            _git("ls-tree", "-r", "--name-only", meta["omega"],
+                 root=meta["root"]).splitlines()]
     territory = {p for p, _ in apply_pipeline(meta["scope"], tree)}
 
     stream = None
@@ -305,7 +312,7 @@ def coverage_explore_data(meta: dict, text: str) -> dict:
             cited.add(e["sel"].group(2))
         elif e["in"] == "omega":
             if stream is None:
-                stream = _universe_stream(meta["omega"])
+                stream = _universe_stream(meta["omega"], meta["root"])
             hits = apply_pipeline(e["pipeline"], stream)
             if not hits:
                 stale.append(f"grep: {' | '.join(e['pipeline'])} (selects nothing in omega)")
@@ -334,6 +341,9 @@ def coverage_explore(meta: dict, text: str) -> None:
 # flow: CLI `gocr.py coverage <review.yaml>` -> coverage() <-- HERE
 def coverage(yaml_path: str) -> None:
     text = _read(yaml_path)
+    if _is_campaign(text):
+        coverage_campaign(yaml_path)
+        return
     meta = yaml_meta(text, os.path.dirname(yaml_path) or ".")
     if meta["mode"] == "explore":
         coverage_explore(meta, text)
@@ -450,7 +460,8 @@ def resolve_at_data(meta: dict, raw: str) -> dict:
         sha = meta[src]
         if not sha or not path:
             raise ValueError(f"{src}: sha missing from header or path missing")
-        proc = subprocess.run(["git", "show", f"{sha}:{path}"],
+        proc = subprocess.run(["git", "-C", meta["root"], "show",
+                               f"{sha}:{path}"],
                               capture_output=True, text=True)
         if proc.returncode:
             raise ValueError(f"git show {sha}:{path} failed (run from the repo "
@@ -461,7 +472,7 @@ def resolve_at_data(meta: dict, raw: str) -> dict:
         hl_state = _hl_state(lines[:a - 1], path)
         if src == "omega":
             try:
-                drift = _read(path) != proc.stdout
+                drift = _read(os.path.join(meta["root"], path)) != proc.stdout
             except OSError:
                 drift = True
     return {"kind": "at", "raw": raw, "src": src, "path": path, "start": a,
@@ -480,7 +491,7 @@ def resolve_grep_data(meta: dict, pipeline: list[str], src: str) -> dict:
         sha = meta[src]
         if not sha:
             raise ValueError(f"{src}: sha missing from header")
-        hits = apply_pipeline(pipeline, _universe_stream(sha))
+        hits = apply_pipeline(pipeline, _universe_stream(sha, meta["root"]))
         rows = []
         for _, r in hits:
             parts = r.split(":", 2)
@@ -533,7 +544,8 @@ def stats(yaml_path: str) -> None:
     explore = meta["mode"] == "explore"
     changed = [] if explore else change_lines(delta_text(meta))
     total = {ln for ln, _, _ in changed}
-    stream = _universe_stream(meta["omega"]) if explore and meta["omega"] else None
+    stream = (_universe_stream(meta["omega"], meta["root"])
+              if explore and meta["omega"] else None)
 
     per: dict[str, dict] = {}
     for e in evidence(text):
@@ -764,7 +776,9 @@ def _story(review_text: str) -> dict:
                     continue
                 if line.strip() and len(line) - len(line.lstrip()) <= key_indent:
                     break                   # next story key
-                m2 = re.match(r"^\s*- (\S+?):\s*(.*?)\s*$", line)
+                # greedy id: a campaign leg "- common:C3: why" keeps
+                # its member prefix; the why never starts without a space
+                m2 = re.match(r"^\s*- (\S+):\s*(.*?)\s*$", line)
                 if m2:
                     wid, rest = m2.groups()
                     if rest in (">", ">-", "|", ""):
@@ -800,6 +814,151 @@ def artifact_data(yaml_path: str) -> dict:
                      "unit": cov["unit"], "stale": cov["stale"]},
         "story": _story(text), "claims": parse_claims(text),
     }
+
+
+# ── campaign (several repos, one deck) ──────────────────────────────
+
+def _is_campaign(text: str) -> bool:
+    return bool(re.search(r"^kind:\s*campaign\s*$", text, re.M))
+
+
+# The problem is one change often lands across sibling repos - a DTO in
+# common, its producer and consumer elsewhere - and the reviewer wants
+# one walk, not four decks in arbitrary order.
+# The way we solve this is a campaign.yaml in the lead repo's .gocr that
+# lists member repos (paths relative to the lead's root) and their
+# review names; each member keeps its own unchanged review.yaml.
+# flow: CLI `gocr.py serve|coverage <campaign.yaml>` -> parse_campaign() <-- HERE
+def parse_campaign(camp_path: str) -> dict:
+    text = _read(camp_path)
+    # the file lives at <lead-root>/.gocr/<name>/campaign.yaml
+    lead = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.abspath(camp_path)), "..", ".."))
+
+    def field(name):
+        m = re.search(rf"^{name}:\s*[\"']?(.+?)[\"']?\s*$", text, re.M)
+        return m.group(1) if m else ""
+
+    members, cur = [], None
+    in_members = False
+    for line in text.splitlines():
+        if re.match(r"^members:\s*$", line):
+            in_members = True
+            continue
+        if in_members:
+            if line.strip() and not line.startswith(" "):
+                break
+            m = re.match(r"^  - repo:\s*[\"']?(.+?)[\"']?\s*$", line)
+            if m:
+                cur = {"repo": m.group(1), "review": None, "name": None}
+                members.append(cur)
+                continue
+            m = re.match(r"^    (review|name):\s*[\"']?(.+?)[\"']?\s*$", line)
+            if m and cur is not None:
+                cur[m.group(1)] = m.group(2)
+    for m in members:
+        m["root"] = os.path.normpath(os.path.join(lead, m["repo"]))
+        if not m["review"]:
+            sys.exit(f"campaign member {m['repo']}: review: missing")
+        m["name"] = m["name"] or os.path.basename(m["root"])
+        m["yaml"] = os.path.join(m["root"], ".gocr", m["review"], "review.yaml")
+    if not members:
+        sys.exit("campaign has no members")
+    return {"name": field("name"), "title": field("title"),
+            "story": _story(text), "members": members}
+
+
+# a member's review text + meta, with git calls pointed at its repo
+def _member_ctx(m: dict) -> tuple[str, dict]:
+    mtext = _read(m["yaml"])
+    meta = yaml_meta(mtext, os.path.dirname(m["yaml"]))
+    meta["root"] = m["root"]
+    return mtext, meta
+
+
+# The problem is the deck wants one artifact even when the claims live
+# in several repos with their own shas and gates.
+# The way we solve this is loading each member as usual, prefixing every
+# claim id with the member name (common:C3), and summing the gates; the
+# campaign story's walk uses the prefixed ids, defaulting to each
+# member's own walk in members order.
+# flow: report `GET /api/artifact` (campaign) -> campaign_artifact_data() <-- HERE
+def campaign_artifact_data(camp_path: str) -> dict:
+    camp = parse_campaign(camp_path)
+    claims, mrows, default_walk = [], [], []
+    claimed = total = 0
+    units = set()
+    for m in camp["members"]:
+        mtext, meta = _member_ctx(m)
+        cov = (coverage_explore_data if meta["mode"] == "explore"
+               else coverage_change_data)(meta, mtext)
+        claimed, total = claimed + cov["claimed"], total + cov["total"]
+        units.add(cov["unit"])
+
+        def mfield(name, mtext=mtext):
+            f = re.search(rf"^\s*{name}:\s*[\"']?(.+?)[\"']?\s*$", mtext, re.M)
+            return f.group(1) if f else ""
+        mrows.append({"name": m["name"], "repo": mfield("repo"),
+                      "ref": mfield("ref"), "review": m["review"],
+                      "coverage": {"claimed": cov["claimed"],
+                                   "total": cov["total"],
+                                   "unit": cov["unit"],
+                                   "stale": cov["stale"]}})
+        mstory = _story(mtext)
+        mclaims = parse_claims(mtext)
+        for c in mclaims:
+            c["id"] = f"{m['name']}:{c['id']}"
+            c["member"] = m["name"]
+            c["root"] = m["root"]
+            c["alpha"], c["omega"] = meta["alpha"], meta["omega"]
+            claims.append(c)
+        legs = mstory["walk"] or [{"id": c["id"].split(":", 1)[1], "why": ""}
+                                  for c in mclaims]
+        default_walk += [{"id": f"{m['name']}:{l['id']}", "why": l["why"]}
+                         for l in legs]
+
+    story = camp["story"]
+    if not story["walk"]:
+        story = dict(story, walk=default_walk)
+    return {
+        "mode": "campaign", "repo": camp["name"],
+        "title": camp["title"] or camp["name"], "ref": "",
+        "alpha": None, "omega": None,
+        "coverage": {"claimed": claimed, "total": total,
+                     "unit": units.pop() if len(units) == 1 else "claimed",
+                     "stale": [f"{r['name']}: {s}" for r in mrows
+                               for s in r["coverage"]["stale"]]},
+        "members": mrows, "story": story, "claims": claims,
+    }
+
+
+# campaign gate: every member's gate, each labeled; exit 0 only if all pass
+# flow: CLI `gocr.py coverage <campaign.yaml>` -> coverage_campaign() <-- HERE
+def coverage_campaign(camp_path: str) -> None:
+    camp = parse_campaign(camp_path)
+    failed = False
+    for m in camp["members"]:
+        mtext, meta = _member_ctx(m)
+        d = (coverage_explore_data if meta["mode"] == "explore"
+             else coverage_change_data)(meta, mtext)
+        ok = not d["residual"] and not d["stale"]
+        print(f"{m['name']}: {d['claimed']}/{d['total']} {d['unit']}"
+              f"{'' if ok else '  FAIL'}")
+        for s in d["stale"]:
+            print(f"  STALE {s}")
+        failed = failed or not ok
+    sys.exit(1 if failed else 0)
+
+
+# a campaign claim id is "<member>:<raw-id>"; a lone review's is bare
+def _split_claim(members: list[dict] | None, cid: str) -> tuple[dict | None, str]:
+    if members:
+        name, _, raw = cid.partition(":")
+        m = next((m for m in members if m["name"] == name), None)
+        if m is None or not raw:
+            raise ValueError(f"no campaign member for claim {cid}")
+        return m, raw
+    return None, cid
 
 
 def _claim_span(lines: list[str], claim_id: str) -> tuple[int, int]:
@@ -925,6 +1084,20 @@ def serve(yaml_path: str, port: int = 7345) -> None:
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import parse_qs, urlparse
 
+    # a campaign federates member reviews; a lone review is the plain case
+    members = (parse_campaign(yaml_path)["members"]
+               if _is_campaign(_read(yaml_path)) else None)
+
+    # the yaml + meta a claim id lives in, and the claim's raw id there
+    def _ctx(cid):
+        m, raw = _split_claim(members, cid)
+        if m is None:
+            text = _read(yaml_path)
+            meta = yaml_meta(text, os.path.dirname(yaml_path) or ".")
+            return yaml_path, text, meta, raw
+        text, meta = _member_ctx(m)
+        return m["yaml"], text, meta, raw
+
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "report")
     editor = os.environ.get("GOCR_EDITOR")
     mime = {".html": "text/html; charset=utf-8", ".css": "text/css",
@@ -967,16 +1140,19 @@ def serve(yaml_path: str, port: int = 7345) -> None:
                     else:
                         self._json({"error": "not found"}, 404)
                 elif url.path == "/api/artifact":
-                    self._json(artifact_data(yaml_path))
+                    self._json(campaign_artifact_data(yaml_path) if members
+                               else artifact_data(yaml_path))
                 elif url.path == "/api/resolve":
                     q = parse_qs(url.query)
-                    text = _read(yaml_path)
-                    meta = yaml_meta(text, os.path.dirname(yaml_path) or ".")
                     if "sel" in q:
+                        # bare sel needs a claim to pick the repo in a
+                        # campaign; a lone review resolves in its own
+                        _, _, meta, _ = _ctx(q.get("claim", [""])[0])
                         self._json(resolve_at_data(meta, q["sel"][0]))
                     else:
-                        cid, idx = q["claim"][0], int(q["idx"][0])
-                        mine = [e for e in evidence(text) if e["claim"] == cid]
+                        idx = int(q["idx"][0])
+                        _, text, meta, raw = _ctx(q["claim"][0])
+                        mine = [e for e in evidence(text) if e["claim"] == raw]
                         e = mine[idx]
                         self._json(resolve_at_data(meta, e["raw"])
                                    if e["kind"] == "at" else
@@ -995,21 +1171,25 @@ def serve(yaml_path: str, port: int = 7345) -> None:
             body = json.loads(self.rfile.read(n) or b"{}")
             try:
                 if self.path == "/api/comment":
-                    add_comment(yaml_path, body["claim"], body["text"],
-                                body.get("at"))
+                    ypath, _, _, raw = _ctx(body["claim"])
+                    add_comment(ypath, raw, body["text"], body.get("at"))
                     self._json({"ok": True})
                 elif self.path == "/api/question":
-                    set_question(yaml_path, body["claim"], int(body["idx"]),
+                    ypath, _, _, raw = _ctx(body["claim"])
+                    set_question(ypath, raw, int(body["idx"]),
                                  body.get("status", ""))
                     self._json({"ok": True})
                 elif self.path == "/api/uncomment":
-                    remove_comment(yaml_path, body["claim"], body["text"],
-                                   body.get("at"))
+                    ypath, _, _, raw = _ctx(body["claim"])
+                    remove_comment(ypath, raw, body["text"], body.get("at"))
                     self._json({"ok": True})
                 elif self.path == "/api/open":
                     import shlex
                     import shutil
-                    abs_path = os.path.abspath(body["path"])
+                    # a campaign claim's file lives in its member repo
+                    repo_root = os.path.abspath(body.get("root") or ".")
+                    abs_path = os.path.abspath(
+                        os.path.join(repo_root, body["path"]))
                     line = body.get("line", 1)
                     if editor:
                         cmd = editor.format(path=abs_path, line=line)
@@ -1040,7 +1220,7 @@ def serve(yaml_path: str, port: int = 7345) -> None:
                                     " for another editor"}, 500)
                     else:
                         subprocess.Popen(
-                            [cli, os.getcwd(), "-g", f"{abs_path}:{line}"])
+                            [cli, repo_root, "-g", f"{abs_path}:{line}"])
                         self._json({"ok": True})
                 else:
                     self._json({"error": "not found"}, 404)
