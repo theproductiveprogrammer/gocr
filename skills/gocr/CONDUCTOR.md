@@ -104,6 +104,31 @@ These apply to every word the human reads: claim `text`, `note`,
 `open_questions`, and above all the story's walk. Violating prose
 gets rewritten, not shipped.
 
+- **The twelve-year-old test rules everything.** Before any other
+  rule: say the sentence to a twelve-year-old child who will never
+  see the diff and could not read it anyway. If they would follow it,
+  ship it. If they would ask what a word means, rewrite it. Rhythm
+  ("does it read well aloud?") comes second — a sentence can flow
+  beautifully and still be gibberish, and gibberish never ships.
+- **Tell it in time.** A claim body is a small story of cause and
+  effect: where we are, what happens, what used to go wrong, what
+  changed, what follows now. Lead with the situation, never with an
+  identifier — "at the end of this step, after the number has been
+  stored with its kind, one last call stores the email" beats
+  "`applyResult(email, null)` replaces `applyResult(email, phone)`".
+  The code sits right below as evidence; the prose does not re-quote
+  it. One or two identifiers per paragraph, only where the name is
+  genuinely the clearest word.
+- **No metaphors. None.** No images (filing, flattening, doors,
+  journeys, trips), no verbs coined from the code's internals
+  ("re-flatten", "filed"), no figures of speech. Plain literal words
+  only. There is nothing to carry over between slides because nothing
+  figurative is allowed on any slide in the first place.
+- **Every claim slide stands alone.** Completely independent: it may
+  not lean on the walk's order, another slide's wording, or anything
+  not on the slide itself. A reader who lands on slide 7 first must
+  understand slide 7 whole. The walk legs are the one place order may
+  be spoken of — they are read together on the story slide.
 - **Plain words, natural rhythm.** Write like a person explaining code
   to a colleague. Vary the sentences: a chain of same-shape sentences
   ("It holds four rules. It builds the id. It answers whether...") is
@@ -214,20 +239,27 @@ claim's evidence or add a claim (often `drive-by`). Repeat until
 exit 0. If you are wearing the hats yourself, re-enter the Detective
 hat properly: investigate the unclaimed lines, don't paper over them.
 
-**5. Editor — a fresh reader.** Once the gate is clean, the Editor
-reads only the yaml and the writing rules — not the diff — and
-rewrites every reader-facing string that reads poorly until it reads
-well aloud. It touches nothing else: ids, tags, evidence and anchors
-stay byte-for-byte. Packaging changes; claims don't — every
-fact, number and name survives. A sentence the Editor cannot
-understand is not readable: it goes back to the Detective as a
-question, never gets paraphrased on a guess. Spawn the Editor fresh
-if you can — and put the full yaml text in its brief, since the yaml
-and the writing rules are all it may read: it should never touch the
-repo or hunt for files. If you must do it yourself, set the diff
-aside and work from the page alone — what you can't follow from the
-page, the human can't either. Re-run the gate after — it must still
-exit 0.
+**5. Editor — two passes, fresh eyes.** Once the gate is clean, the
+Editor works from the yaml and the writing rules alone — never the
+diff, never the repo. Spawn it fresh with the full yaml text in its
+brief. It edits in two passes:
+
+- **Pass one, each claim alone.** Take the claims one at a time as if
+  each were the only slide in the deck — the order does not matter,
+  what matters is judging every slide against the writing rules with
+  no memory of the others' wording, so a coined word cannot start to
+  feel defined. Apply the twelve-year-old test to every sentence. A
+  sentence the Editor cannot restate in plain words goes back to the
+  Detective as a question, never gets paraphrased on a guess.
+- **Pass two, the whole deck.** One continuous read for facts and
+  consistency: every fact, number, and name from before the edit
+  still present, nothing told twice, story legs still pointing at
+  what their claims now say.
+
+It touches nothing but prose: ids, tags, evidence and anchors stay
+byte-for-byte. Re-run the gate after — it must still exit 0. This is
+the most call-heavy step in the pipeline, deliberately: readable
+output is the product, and this is where readable is enforced.
 
 **6. Quant — a script, not a model.** Run `gocr.py stats
 review.yaml`: per-claim delta lines claimed, alpha/omega cites, grep
