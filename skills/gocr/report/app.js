@@ -125,6 +125,27 @@ function hlLine(t, lang, state) {
 
 const DIFF_META = /^(diff |index |--- |\+\+\+ |@@|\\ No newline)/;
 
+// The problem is delta evidence names diff line numbers, so the reader
+// can't tell which file they are looking at without scrolling for a
+// diff header.
+// The way we solve this is reading the files back out of the resolved
+// data - the per-row IDE info for ranges, the row path prefix for
+// greps - and labeling the recipe with them.
+// flow: renderClaim/renderEvidence -> evFiles() <-- HERE
+function evFiles(data) {
+  let files = [];
+  if (data.kind === 'at' && data.src === 'delta')
+    files = (data.ide || []).filter(Boolean).map(r => r[0]);
+  else if (data.kind === 'grep' && data.in === 'delta')
+    files = (data.hits || []).map(r => r.text.split(':', 1)[0]);
+  else return '';
+  const uniq = [...new Set(files)];
+  if (!uniq.length) return '';
+  const label = uniq.slice(0, 2).join(' · ')
+    + (uniq.length > 2 ? ` +${uniq.length - 2} more` : '');
+  return `<span class="evfiles">${esc(label)}</span>`;
+}
+
 // a filter pipeline renders as one chip per pattern - never [a, b],
 // which reads as a regex character class and lies about the meaning
 function pipelineChips(pipeline) {
@@ -398,6 +419,7 @@ function renderClaim() {
         <div class="ev" onclick="openEvidence(${i})" title="open focus view">
           ${e.kind === 'at' ? `at: ${esc(e.raw)}`
             : `grep: ${pipelineChips(e.pipeline)} in: ${esc(e.in)}`}
+          ${data ? evFiles(data) : `<span class="evfiles" data-fi="${i}"></span>`}
           ${e.note ? `<div class="n">${esc(e.note)}</div>` : ''}
         </div>
         <div class="ev-pane" data-ei="${i}">${!data
@@ -432,6 +454,8 @@ async function hydrateClaim(c) {
     if (pane) pane.innerHTML = resCache[key].error
       ? `<div class="resolving">${esc(resCache[key].error)}</div>`
       : evBody(c, resCache[key]);
+    const fi = document.querySelector(`.evfiles[data-fi="${i}"]`);
+    if (fi && !resCache[key].error) fi.outerHTML = evFiles(resCache[key]);
   }
 }
 
@@ -500,8 +524,9 @@ function renderEvidence() {
   const e = c.evidence[ev.ei];
   const data = ev.data;
   const body = evBody(c, data);
-  const recipe = e.kind === 'at' ? `at: ${esc(e.raw)}`
-    : `grep: ${pipelineChips(e.pipeline)} in: ${esc(e.in)}`;
+  const recipe = (e.kind === 'at' ? `at: ${esc(e.raw)}`
+    : `grep: ${pipelineChips(e.pipeline)} in: ${esc(e.in)}`)
+    + evFiles(data);
   currentCmd = shellCmd(e, data);
   $slide.className = 'card';
   $slide.innerHTML = `

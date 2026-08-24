@@ -323,6 +323,16 @@ code {
   overflow-wrap: anywhere;  /* long anchor paths wrap, never clip */
 }
 .ev:hover { border-color: var(--steel); }
+/* the file(s) a delta recipe touches - the anchor names diff lines,
+   this names what the reader is actually looking at */
+.evfiles {
+  display: block;
+  font-size: 10.5px;
+  color: var(--faint);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.recipe .evfiles { display: inline; margin-left: 10px; }
 
 /* the resolved code, visible on the claim slide itself; tall
    selections scroll inside the pane, never hide behind a click */
