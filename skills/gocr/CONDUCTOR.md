@@ -133,6 +133,11 @@ gets rewritten, not shipped.
 
 ## Workflow
 
+Time yourself: run `date +%H:%M:%S` now and again as you finish each
+numbered step, keeping the stamps for the hand-over note's `timings:`
+line. The stamps are how the humans tune this pipeline — never skip
+them, never reconstruct them from memory.
+
 **1. Header.** Write the artifact skeleton in the given artifact
 directory: mode block with the pinned shas, `repo`, a `ref` you derive
 from git (branch name, range, or PR url if discoverable), and a
@@ -157,7 +162,13 @@ draft) *without* anchoring; the **Detective** then anchors every
 claim, hunts counter-evidence and open questions, and kills or flags
 any claim it cannot anchor — unanchorable claims are the
 falsifiability test failing, and they die visibly (a
-`refuted-in-drafting` note), never silently. The work:
+`refuted-in-drafting` note), never silently. Splitting must never
+mean re-deriving: the Claimant hands the Detective its working notes
+— the file/hunk map it built, each claim's intent, where it expects
+the evidence to live — alongside the draft yaml. Blindness excludes
+the code's author, not your own prior work; a successor hat that
+re-reads the whole diff from scratch is paying the pipeline's
+biggest cost twice. The work:
 - Read the whole diff; group the change into 5–12 claims, each a
   falsifiable assertion about the change ("X can now Y", "Z retires",
   "invariant W holds"), tagged from: `feature`, `invariant`,
@@ -183,6 +194,10 @@ falsifiability test failing, and they die visibly (a
   `open_questions` entry there; a problem that stands on its own
   becomes its own claim tagged `finding`, anchored like any other, so
   it gets its own slide and the human judges it there.
+- Before declaring the claims done, run `gocr.py coverage
+  review.yaml` yourself and fix what it lists — anchoring is not
+  finished while the gate names unclaimed lines. Step 4 confirms;
+  it should not discover.
 - Anything the human reviewer's directives asked to be examined gets
   examined — and what that examination finds lands in the artifact
   as evidence, open questions, or finding claims, like everything
@@ -207,9 +222,12 @@ stay byte-for-byte. Packaging changes; claims don't — every
 fact, number and name survives. A sentence the Editor cannot
 understand is not readable: it goes back to the Detective as a
 question, never gets paraphrased on a guess. Spawn the Editor fresh
-if you can; if you must do it yourself, set the diff aside and work
-from the page alone — what you can't follow from the page, the human
-can't either. Re-run the gate after — it must still exit 0.
+if you can — and put the full yaml text in its brief, since the yaml
+and the writing rules are all it may read: it should never touch the
+repo or hunt for files. If you must do it yourself, set the diff
+aside and work from the page alone — what you can't follow from the
+page, the human can't either. Re-run the gate after — it must still
+exit 0.
 
 **6. Quant — a script, not a model.** Run `gocr.py stats
 review.yaml`: per-claim delta lines claimed, alpha/omega cites, grep
@@ -229,7 +247,10 @@ finds nothing writes nothing.
 the review.yaml path, and a short hand-over note written per the
 writing rules — claim count, the stats standouts, and the open
 questions most worth the human's attention (drive-bys and invariant
-gaps first). The note is relayed to the human verbatim, so address
+gaps first). End the note with one `timings:` line from your step
+stamps, compact and mechanical, e.g.
+`timings: header 0:40 · claims 6:10 · gate 1:30 · editor 4:00 ·
+total 13:05`. The note is relayed to the human verbatim, so address
 it to them. The spawning session serves the deck; you are done.
 
 ## The Weaver — binding a campaign (only when spawned for it)
@@ -253,8 +274,12 @@ The work:
 3. The campaign story is the cross-repo walk: contract first, then
    producers, then consumers — legs use member-prefixed ids
    (`common:C3`) and each why says why this repo is the next stop.
-   The summary says what the change is ACROSS the repos, in the
-   writing rules' plain voice.
+   The story fields obey the same cover discipline as a review's:
+   `summary` is the cover — two to four plain sentences saying what
+   the change is across the repos, nothing more; the orientation
+   essay (where the seam is, how the walk crosses it, what to hold
+   in mind) goes in `why:`, which renders on the story slide. A
+   cover that needs a scrollbar is the wall-of-text bug.
 4. Stamp a backpointer into each member review's header: one line,
    `campaign: <path-to-campaign.yaml relative to that repo's root>`,
    placed with the other header fields. Touch nothing else in the
