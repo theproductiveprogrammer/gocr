@@ -34,6 +34,10 @@ Commands:
   gocr.py resolve  <review.yaml> <claim>  resolve every evidence entry of a claim
   gocr.py stats    <review.yaml>          per-claim mechanical signals
   gocr.py files    <diff-path-or-url | review.yaml>   per-file shape of the delta
+                                          (with a format-only column: changed
+                                          lines that vanish under diff -w)
+  gocr.py delta    <review.yaml> [path-regex]   the delta, line-numbered in the
+                                          anchor coordinate space
 """
 
 import os
@@ -589,21 +593,63 @@ def stats(yaml_path: str) -> None:
 # The way we solve this is per-file aggregation of changed lines with
 # their delta line spans, so wholesale-claim candidates stand out.
 # flow: CLI `gocr.py files <diff-or-yaml>` -> files() <-- HERE
+# The problem is a reformatted file reads as a huge change when almost
+# none of it is substance - the reviewer-agent burned minutes dissecting
+# whitespace churn before this column existed.
+# The way we solve this is diffing again with -w: changed lines that
+# vanish under it are format-only, and the count prints per file so a
+# formatter-dominated file is visible in seconds.
+# flow: CLI `gocr.py files <review.yaml|diff>` -> files() <-- HERE
 def files(arg: str) -> None:
+    fmt_only: dict[str, int] = {}
     if arg.endswith((".yaml", ".yml")):
         text = _read(arg)
-        diff = delta_text(yaml_meta(text, os.path.dirname(arg) or "."))
+        meta = yaml_meta(text, os.path.dirname(arg) or ".")
+        diff = delta_text(meta)
+        if not meta["delta"] and meta["alpha"] and meta["omega"]:
+            w = _git("diff", "-w", meta["alpha"], meta["omega"],
+                     root=meta["root"])
+            survives: dict[str, int] = {}
+            for _, path, _l in change_lines(w):
+                survives[path] = survives.get(path, 0) + 1
+            full: dict[str, int] = {}
+            for _, path, _l in change_lines(diff):
+                full[path] = full.get(path, 0) + 1
+            fmt_only = {p: n - survives.get(p, 0) for p, n in full.items()}
     else:
         diff = _read(arg)
     changed = change_lines(diff)
     per: dict[str, list[int]] = {}
     for ln, path, _ in changed:
         per.setdefault(path, []).append(ln)
-    print(f"{'Δlines':>7}  {'delta span':18}  file")
+    fcol = bool(fmt_only)
+    print(f"{'Δlines':>7}  {'fmt-only':>8}  {'delta span':18}  file"
+          if fcol else f"{'Δlines':>7}  {'delta span':18}  file")
     for path, lns in per.items():
         segs = 1 + sum(1 for a, b in zip(lns, lns[1:]) if b != a + 1)
         span = f"{lns[0]}-{lns[-1]} ({segs} seg)"
-        print(f"{len(lns):>7}  {span:18}  {path}")
+        if fcol:
+            print(f"{len(lns):>7}  {fmt_only.get(path, 0):>8}  {span:18}  {path}")
+        else:
+            print(f"{len(lns):>7}  {span:18}  {path}")
+
+
+# The problem is delta anchors live in the numbered coordinate space of
+# the derived diff, but `git diff` prints no numbers - so the
+# reviewer-agent used to count lines or trial-and-error through resolve.
+# The way we solve this is printing the delta with its line numbers in
+# the margin: citing evidence becomes copying two numbers off the page.
+# flow: CLI `gocr.py delta <review.yaml> [path-regex]` -> delta_cmd() <-- HERE
+def delta_cmd(yaml_path: str, path_filter: str | None = None) -> None:
+    text = _read(yaml_path)
+    meta = yaml_meta(text, os.path.dirname(yaml_path) or ".")
+    pat = re.compile(path_filter) if path_filter else None
+    path = None
+    for i, line in enumerate(delta_text(meta).splitlines(), 1):
+        if line.startswith("diff --git"):
+            path = line.split(" b/", 1)[-1]
+        if pat is None or (path and pat.search(path)):
+            print(f"{i:>6}  {line}")
 
 
 # ── report (the story deck) ─────────────────────────────────────────
@@ -1245,6 +1291,8 @@ def main() -> None:
         stats(rest[0])
     elif cmd == "files":
         files(rest[0])
+    elif cmd == "delta":
+        delta_cmd(rest[0], rest[1] if len(rest) > 1 else None)
     elif cmd == "serve":
         serve(rest[0], int(rest[1]) if len(rest) > 1 else 7345)
     else:

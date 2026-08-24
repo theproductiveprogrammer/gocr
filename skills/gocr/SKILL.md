@@ -61,7 +61,12 @@ is exactly why you add nothing.
 while you wait. In chat, a status line ("conductor running") is
 plenty.
 
-**4. Serve and relay.** When the Conductor returns: run
+**4. Check the stamps, serve, relay.** When the Conductor returns,
+look at ONE thing before anything else — not the yaml, not the
+claims: the hand-over note's `timings:` line. It must stamp every
+numbered step or say `skipped: <why>`. A missing stamp means a step
+was silently skipped: send the Conductor back to run it. This is
+bookkeeping, not content — blindness holds. Then run
 `python3 <skill-base-dir>/gocr.py serve <yaml-path> [port]` from the
 repo root, then give the user the URL, the yaml path, and the
 Conductor's hand-over note **verbatim**. That is the entire final

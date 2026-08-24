@@ -45,16 +45,20 @@ out to git at the pinned shas.
 - `coverage review.yaml` — the gate (self-describing via the yaml)
 - `resolve review.yaml <selection | claim-id>` — show what evidence names
 - `stats review.yaml` — per-claim mechanical signals
-- `files <diff-path-or-url>` — per-file shape of a diff
+- `files <diff-path-or-url>` — per-file shape of a diff, with a
+  fmt-only column (changed lines that vanish under `diff -w`)
+- `delta review.yaml [path-regex]` — the delta, line-numbered in the
+  `delta:` anchor coordinate space
 
 The work is split across **roles** — distinct hats with different
 incentives, so no single author curates the whole artifact:
-**Claimant** (asserts) → **Detective** (anchors & gates) → **Editor**
-(makes it readable) → **Quant** (deterministic script) → **Reviewer**
-(the human, who adjudicates). Spawn a fresh subagent per role when
-the Agent tool is available to you; when it is not, wear the hats
-yourself, in order, one at a time — your freshness carries the
-independence that matters most.
+**Reader** (reads the pack once, decomposes into fact sheets, anchors
+and gates as it reads) → **Writer-Editor** (the only prose author;
+fanned out per claim) → **Quant** (deterministic script) →
+**Reviewer** (the human, who adjudicates). Spawn the Writer-Editor
+as fresh subagents when the Agent tool is available to you; when it
+is not, wear that hat yourself after setting the diff fully aside —
+your freshness carries the independence that matters most.
 
 ## IMPORTANT RULES
 
@@ -94,7 +98,7 @@ the faster and easier they can walk it, the more they contribute back.
    artifact stores no results.
 8. **Selections stay declarative.** Ranges and grep filter-pipelines
    are the whole evidence language — no shell, no arbitrary commands.
-   The Detective may run anything while *investigating*; what it
+   The Reader may run anything while *investigating*; what it
    records is the declarative selection it landed on. Evidence is the
    finding, not the search history.
 
@@ -172,47 +176,54 @@ given; it renders on the deck cover, where the human checks it the
 way they'd check a PR's base branch — a lazy scope evades the gate
 legally, so declare it honestly.
 
-**2. Inventory.** Change: `gocr.py files review.yaml` (or a diff
-path) to see the shape — generated/vendored files (huge churn, zero
-review value) are wholesale-claim candidates via one path-scoped
-delta grep. Explore: `git ls-tree -r --name-only <omega> <dir>` to
-size the territory. Read the commit messages (`git log alpha..omega`)
-— they are claims the author already made, and the diff will be
-compared against them.
+**2. Read the pack — once.** The tool prepares the reading
+mechanically; you read it once and never walk the diff again:
+- `gocr.py files review.yaml` — per-file shape, now with a
+  **fmt-only** column (changed lines that vanish under `diff -w`).
+  A file dominated by fmt-only churn is a wholesale-claim candidate:
+  one path-scoped delta grep claims the churn, and you read only the
+  real changes (`git diff -w` for that file). Generated/vendored
+  files likewise.
+- `gocr.py delta review.yaml [path-regex]` — the delta with **line
+  numbers in the margin, which are the `delta:` anchor coordinates**.
+  As you read, jot anchors by copying the margin numbers; anchoring
+  is part of reading, not a later hunt.
+- `git log alpha..omega` — the commit messages are claims the author
+  already made; the diff will be compared against them.
+- Explore: `git ls-tree -r --name-only <omega> <dir>` to size the
+  territory.
+Keep working notes per file: what changed, which margin ranges carry
+it, what surprised you.
 
-**3. Claimant + Detective.** For a small change one role-agent (or
-you) wears both hats; for a large or contested one, split them: the
-**Claimant** reads the diff and asserts (claim texts, tags, story
-draft) *without* anchoring; the **Detective** then anchors every
-claim, hunts counter-evidence and open questions, and kills or flags
-any claim it cannot anchor — unanchorable claims are the
-falsifiability test failing, and they die visibly (a
-`refuted-in-drafting` note), never silently. Splitting must never
-mean re-deriving: the Claimant hands the Detective its working notes
-— the file/hunk map it built, each claim's intent, where it expects
-the evidence to live — alongside the draft yaml. Blindness excludes
-the code's author, not your own prior work; a successor hat that
-re-reads the whole diff from scratch is paying the pipeline's
-biggest cost twice. The work:
-- Read the whole diff; group the change into 5–12 claims, each a
-  falsifiable assertion about the change ("X can now Y", "Z retires",
-  "invariant W holds"), tagged from: `feature`, `invariant`,
-  `removal`, `rename`, `api-surface`, `drive-by`, `generated`,
-  `cross-cutting`, `finding`.
+**3. Fact sheets — decompose, don't write.** Group the change into
+5–12 claims and write each as a **fact sheet**, not prose: a `title`
+(a name), telegraphic bullet facts in the `text` field — fragments
+with exact identifiers, numbers, and margin-anchor jots; no
+sentences, no connective tissue, and none of the polish the writing
+rules demand. Prose is step 5's job; a fact written twice is the
+pipeline's old biggest waste. Falsifiability is the only standard
+here: every fact checkable, every claim anchored from your reading
+notes. A claim you cannot anchor is the falsifiability test failing
+— it dies visibly (a `refuted-in-drafting` note), never silently.
+The work:
+- Each claim a falsifiable assertion about the change ("X can now Y",
+  "Z retires", "invariant W holds"), tagged from: `feature`,
+  `invariant`, `removal`, `rename`, `api-surface`, `drive-by`,
+  `generated`, `cross-cutting`, `finding`.
 - Select evidence by the grammar below: state claims cite `omega:`
   (the code as it now is — usually the best reading), transition
-  claims cite `delta:` ranges, archaeology cites `alpha:`, wholesale
-  claims (generated files, mechanical churn) use one path-scoped
-  delta grep.
+  claims cite `delta:` ranges straight off the margin numbers,
+  archaeology cites `alpha:`, wholesale claims (generated files,
+  formatter churn) use one path-scoped delta grep.
 - Compare the claims against the commit messages: anything real in
   the diff but absent from the messages is a separate claim tagged
   `drive-by` — never silently folded into another claim.
 - Prove absences with grep recipes (`in: omega`, paired with
   `in: alpha` for existed-before) — no quoted results, rule 7.
-- Record `open_questions` per claim: behaviors the diff permits that
-  the claim text doesn't promise (unguarded edge cases, silent
-  precedence, asymmetries). These are the seeds of real findings —
-  find at least a few or say why there are none.
+- Record `open_questions` per claim as blunt fragments: behaviors
+  the diff permits that the facts don't promise (unguarded edge
+  cases, silent precedence, asymmetries). These are the seeds of real
+  findings — find at least a few or say why there are none.
 - A suspected *problem* — a likely bug, a broken promise, a
   regression risk — goes into the artifact, never into a fix
   (rule 1). A doubt that shadows an existing claim is an
@@ -227,39 +238,39 @@ biggest cost twice. The work:
   examined — and what that examination finds lands in the artifact
   as evidence, open questions, or finding claims, like everything
   else.
-- Write one `story`: a `summary` for the cover (two to four plain
-  sentences saying what the change is and does), and a `walk` — the
-  claims in reading order, each leg carrying its one-or-two-sentence
-  why: what this stop is, why it comes next (mechanical reasons,
-  said plainly). The walk points; the claims argue.
+- Draft the `story` as facts too: the walk order with a fragment per
+  leg saying why it comes next (mechanical reasons), and the raw
+  points the cover summary must make. Step 5 writes the prose.
 
-**4. Gate.** `gocr.py coverage review.yaml`. Feed any UNCLAIMED
-lines back to the Detective — it must either extend an existing
-claim's evidence or add a claim (often `drive-by`). Repeat until
-exit 0. If you are wearing the hats yourself, re-enter the Detective
-hat properly: investigate the unclaimed lines, don't paper over them.
+**4. Gate — a checksum, not a discovery.** `gocr.py coverage
+review.yaml`. Because anchors were jotted during the read, exit 0
+should be immediate. Any UNCLAIMED line is a line you never read: go
+read it now and claim it honestly (often `drive-by`) — never widen an
+anchor to swallow lines you haven't looked at.
 
-**5. Editor — two passes, fresh eyes.** Once the gate is clean, the
-Editor works from the yaml and the writing rules alone — never the
-diff, never the repo. Spawn it fresh with the full yaml text in its
-brief. It edits in two passes:
+**5. Writer-Editor — the only place prose exists.** Once the gate is
+clean, spawn the Writer-Editor fresh with the full yaml text in its
+brief. It works from the fact sheets and the writing rules alone —
+never the diff, never the repo — in two passes:
 
-- **Pass one, each claim alone.** Take the claims one at a time as if
-  each were the only slide in the deck — the order does not matter,
-  what matters is judging every slide against the writing rules with
-  no memory of the others' wording, so a coined word cannot start to
-  feel defined. Apply the twelve-year-old test to every sentence. A
-  sentence the Editor cannot restate in plain words goes back to the
-  Detective as a question, never gets paraphrased on a guess.
+- **Pass one, each claim alone, in parallel.** One subagent call per
+  claim (legal because every slide must stand alone anyway): turn the
+  fact sheet into prose per the writing rules — the story told in
+  time, the twelve-year-old test on every sentence. The facts are
+  frozen: nothing added, nothing dropped, nothing altered — every
+  identifier, number, and name from the sheet appears in the prose.
+  A fact the writer cannot render in plain words goes back as a
+  question, never gets paraphrased on a guess. The story's summary
+  and leg whys are written the same way from the story facts.
 - **Pass two, the whole deck.** One continuous read for facts and
-  consistency: every fact, number, and name from before the edit
-  still present, nothing told twice, story legs still pointing at
-  what their claims now say.
+  consistency: every sheet fact present in its slide, nothing told
+  twice, legs pointing at what their claims now say, no coined word
+  anywhere.
 
 It touches nothing but prose: ids, tags, evidence and anchors stay
 byte-for-byte. Re-run the gate after — it must still exit 0. This is
-the most call-heavy step in the pipeline, deliberately: readable
-output is the product, and this is where readable is enforced.
+deliberately the call-heaviest step: readable output is the product,
+and the parallel fan-out is what keeps it from being the slowest.
 
 **6. Quant — a script, not a model.** Run `gocr.py stats
 review.yaml`: per-claim delta lines claimed, alpha/omega cites, grep
@@ -280,9 +291,12 @@ the review.yaml path, and a short hand-over note written per the
 writing rules — claim count, the stats standouts, and the open
 questions most worth the human's attention (drive-bys and invariant
 gaps first). End the note with one `timings:` line from your step
-stamps, compact and mechanical, e.g.
-`timings: header 0:40 · claims 6:10 · gate 1:30 · editor 4:00 ·
-total 13:05`. The note is relayed to the human verbatim, so address
+stamps, compact and mechanical, covering EVERY numbered step — a
+skipped step appears as `<step> skipped: <why>`, never as a silent
+gap. e.g.
+`timings: header 0:40 · read 2:10 · facts 3:00 · gate 0:20 ·
+writer 4:00 · quant 0:30 · verify skipped: not requested ·
+total 10:40`. The note is relayed to the human verbatim, so address
 it to them. The spawning session serves the deck; you are done.
 
 ## The Weaver — binding a campaign (only when spawned for it)
