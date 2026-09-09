@@ -33,6 +33,14 @@ guarantee. Two modes:
 - **`explore:`** — one pinned universe (omega) plus a declared
   `scope:` path-filter pipeline. Gate: every scope file cited.
 
+In both modes **test files are out by default**: the tool drops them
+from the derived delta and from the explore territory before anything
+is numbered or counted (`tests: skip`, the default). They come back
+only when the human reviewer asked for them — then the header says
+`tests: review` and they are claimed like any other line. Never put
+`tests: review` in on your own judgment; never write claims about
+test files that the delta does not show you.
+
 The artifact (`review.yaml`) stores **recipes, never results** —
 methods of surgically pulling out the lines to talk about, resolved
 live against the pinned shas, so nothing in it can quietly go stale.
@@ -174,7 +182,9 @@ from git (branch name, range, or PR url if discoverable), and a
 explore, declare the `scope:` pipeline from the territory you were
 given; it renders on the deck cover, where the human checks it the
 way they'd check a PR's base branch — a lazy scope evades the gate
-legally, so declare it honestly.
+legally, so declare it honestly. Add `tests: review` only if the
+human reviewer's directives asked for the tests to be reviewed;
+otherwise leave the field out and test files stay skipped.
 
 **2. Read the pack — once.** The tool prepares the reading
 mechanically; you read it once and never walk the diff again:
@@ -350,6 +360,7 @@ change:                           # ── review mode ──
   alpha: <full sha>               # the universe before
   omega: <full sha>               # the universe after
   # delta: change.diff            # ONLY for repo-less review of a fetched diff
+  # tests: review                 # default is skip: test files leave the delta
   source: <url, if any>           # provenance (both modes)
   title: <a name for the change — one clause, no "and" chains>
   authored_by: fresh-agent        # never the code author
@@ -360,7 +371,7 @@ explore:                          # ── map mode ──
   omega: <full sha>               # the one pinned universe
   scope:                          # promised territory: path filter pipeline
     - "^backend/src/"
-    - "!.*_test"
+  # tests: review                 # default is skip: test files leave the territory
   source: <url, if any>
   title: <what this maps>
   authored_by: fresh-agent
@@ -461,7 +472,11 @@ Coverage — change mode: `delta` ranges and `in: delta` greps claim
 changed lines; `alpha`/`omega` evidence is citable, never gated.
 Explore mode: `omega` ranges and greps cite files; every scope file must
 be cited (breadth, not depth — depth is what claims are
-for). Pinned shas make plain line ranges stable; recipes make every
+for). Test files (test/ tests/ spec/ __tests__/ testdata/ directories,
+`test_x`, `x_test`, `x.test.*`, `x.spec.*`, `FooTest.*` names) are
+outside both gates unless the header says `tests: review`; the
+`delta:` coordinates count the diff with them already gone, and
+`gocr.py delta` prints exactly that diff. Pinned shas make plain line ranges stable; recipes make every
 proof re-runnable — including at future commits, where a re-run of an
 omega recipe tells you whether the claim still holds. Stats are derived
 by `gocr.py stats`, cited in rendered views, and never stored in the

@@ -287,7 +287,8 @@ function renderTitle() {
       <div class="covbar"><i style="width:${pct}%"></i></div>
       <div class="meta">${A.coverage.claimed}/${A.coverage.total}
         ${esc(A.coverage.unit)}${A.coverage.stale.length
-          ? ` · ${A.coverage.stale.length} stale` : ''}</div>
+          ? ` · ${A.coverage.stale.length} stale` : ''}${A.tests_dropped
+          ? ' · test files skipped' : ''}</div>
       ${(A.members || []).map(m => {
         const p = m.coverage.total
           ? Math.round(100 * m.coverage.claimed / m.coverage.total) : 0;
@@ -638,7 +639,21 @@ function repoCtx() {
   const c = walk[ev ? ev.ci : pos - base()];
   return { alpha: (c && c.alpha) || A.alpha,
            omega: (c && c.omega) || A.omega,
-           root: (c && c.root) || null };
+           root: (c && c.root) || null,
+           tests: c && 'tests_dropped' in c ? c.tests_dropped : A.tests_dropped };
+}
+
+// The problem is delta line numbers count a diff with test files already
+// dropped, so a bare `git diff` would put every anchor off by the size
+// of the tests above it.
+// The way we solve this is piping git diff through the same path regex
+// the tool used, so the copied command reproduces the numbered delta.
+// flow: claim slide — reader clicks the copy icon on delta evidence -> shellCmd -> deltaCmd() <-- HERE
+function deltaCmd(git, r) {
+  const diff = `${git} diff ${r.alpha} ${r.omega}`;
+  if (!r.tests) return diff;
+  const re = r.tests.replace(/\//g, '\\/');
+  return `${diff} | awk '/^diff --git/{s=(substr($4,3) ~ /${re}/)} !s'`;
 }
 
 let currentCmd = '';
@@ -651,11 +666,11 @@ function shellCmd(e, data) {
     if (!m) return '';
     const [, src, path, a, b] = m;
     if (src === 'delta')
-      return `${git} diff ${r.alpha} ${r.omega} | sed -n '${a},${b}p'`;
+      return `${deltaCmd(git, r)} | sed -n '${a},${b}p'`;
     return `${git} show ${q(r[src] + ':' + path)} | sed -n '${a},${b}p'`;
   }
   let cmd = e.in === 'delta'
-    ? `${git} diff ${r.alpha} ${r.omega} | awk '/^diff --git/{p=substr($4,3)}` +
+    ? `${deltaCmd(git, r)} | awk '/^diff --git/{p=substr($4,3)}` +
       ` /^[+-]/ && !/^\\+\\+\\+/ && !/^---/ {print p":"$0}'`
     : `${git} grep -nI -e "" ${r[e.in]} | sed 's/^[^:]*://'`;
   for (const p of e.pipeline) {

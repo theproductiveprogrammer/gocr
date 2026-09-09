@@ -7,6 +7,11 @@ Two artifact modes, one evidence grammar:
   explore: omega (one pinned sha) + scope (path filter pipeline)
            gate: every scope file cited by at least one claim
 
+Test files are out of both gates by default (`tests: skip`, the
+default in either mode block): they are dropped from the derived delta
+and from the explore territory before anything counts. `tests: review`
+puts them back. TESTS below is the one definition of "test file".
+
 Evidence is source:selection recipes:
   at: alpha:<path>:<a>-<b>     file lines in the before-universe
   at: omega:<path>:<a>-<b>     file lines in the after-universe
@@ -87,26 +92,59 @@ def yaml_meta(review_text: str, yaml_dir: str) -> dict:
                 collecting = False
 
     delta = field("delta")
+    tests = field("tests") or "skip"
+    if tests not in ("skip", "review"):
+        sys.exit(f"tests: must be skip or review, not {tests!r}")
     return {
         "mode": "explore" if re.search(r"^explore:", review_text, re.M) else "change",
         "alpha": field("alpha"),
         "omega": field("omega"),
         "delta": os.path.join(yaml_dir, delta) if delta else None,
         "scope": scope,
+        "tests": tests,
         # the repo the shas live in; "." for a lone review (run from the
         # repo root), a member's directory when part of a campaign
         "root": ".",
     }
 
 
+# What counts as a test file, as one regex over a repo-relative path.
+# Understand: this same string is handed to awk in the deck's copy-to-shell
+# command, so it must stay plain ERE - no \w, \d, lookarounds or {n,m}.
+# Directories: test/ tests/ __tests__/ spec/ specs/ testdata/.
+# Files: test_x.py, x_test.go, x.test.ts, x.spec.js, FooTest.java, FooTests.cs.
+TESTS = (r"(^|/)(tests?|__tests__|specs?|testdata)/"
+         r"|(^|/)test_[^/]*$|_test\.[^/]*$|\.(test|spec)\.[^/]*$"
+         r"|Tests?\.[^/]*$")
+
+
+# The problem is a review usually wants the production change, and test
+# churn in the delta both pads the gate and pulls the reader off the story.
+# The way we solve this is dropping whole test-file sections from the diff
+# before anyone numbers it, so anchors, coverage and the deck all agree.
+# flow: delta_text() -> _drop_tests() <-- HERE
+def _drop_tests(diff_text: str) -> str:
+    out, skip = [], False
+    for line in diff_text.splitlines(keepends=True):
+        if line.startswith("diff --git"):
+            skip = bool(re.search(TESTS, line.split(" b/", 1)[-1].rstrip("\n")))
+        if not skip:
+            out.append(line)
+    return "".join(out)
+
+
 # The delta is a derived view: an explicitly pinned file wins, otherwise
-# it comes live from git at the pinned shas.
-def delta_text(meta: dict) -> str:
+# it comes live from git at the pinned shas. Test files are dropped
+# unless the header says `tests: review`. Extra args go to git diff.
+def delta_text(meta: dict, *flags: str) -> str:
     if meta["delta"]:
-        return _read(meta["delta"])
-    if meta["alpha"] and meta["omega"]:
-        return _git("diff", meta["alpha"], meta["omega"], root=meta["root"])
-    sys.exit("change block needs alpha+omega (or an explicit delta: file)")
+        diff = _read(meta["delta"])
+    elif meta["alpha"] and meta["omega"]:
+        diff = _git("diff", *flags, meta["alpha"], meta["omega"],
+                    root=meta["root"])
+    else:
+        sys.exit("change block needs alpha+omega (or an explicit delta: file)")
+    return _drop_tests(diff) if meta["tests"] == "skip" else diff
 
 
 # Every +/- line of the delta, keyed by its 1-indexed line number - the
@@ -278,7 +316,8 @@ def coverage_change_data(meta: dict, text: str) -> dict:
 
 def coverage_change(meta: dict, text: str) -> None:
     d = coverage_change_data(meta, text)
-    print(f"coverage: {d['claimed']}/{d['total']} {d['unit']}")
+    print(f"coverage: {d['claimed']}/{d['total']} {d['unit']}"
+          + (" (test files skipped)" if meta["tests"] == "skip" else ""))
     prev = None
     for ln, f, t in d["residual"]:
         if prev is None or ln != prev + 1:
@@ -304,7 +343,8 @@ def coverage_explore_data(meta: dict, text: str) -> dict:
     tree = [(p, p) for p in
             _git("ls-tree", "-r", "--name-only", meta["omega"],
                  root=meta["root"]).splitlines()]
-    territory = {p for p, _ in apply_pipeline(meta["scope"], tree)}
+    pipeline = meta["scope"] + (["!" + TESTS] if meta["tests"] == "skip" else [])
+    territory = {p for p, _ in apply_pipeline(pipeline, tree)}
 
     stream = None
     cited, stale = set(), []
@@ -332,7 +372,8 @@ def coverage_explore_data(meta: dict, text: str) -> dict:
 
 def coverage_explore(meta: dict, text: str) -> None:
     d = coverage_explore_data(meta, text)
-    print(f"coverage: {d['claimed']}/{d['total']} {d['unit']}")
+    print(f"coverage: {d['claimed']}/{d['total']} {d['unit']}"
+          + (" (test files skipped)" if meta["tests"] == "skip" else ""))
     for p in d["residual"][:50]:
         print(f"  UNVISITED {p}")
     if len(d["residual"]) > 50:
@@ -607,8 +648,7 @@ def files(arg: str) -> None:
         meta = yaml_meta(text, os.path.dirname(arg) or ".")
         diff = delta_text(meta)
         if not meta["delta"] and meta["alpha"] and meta["omega"]:
-            w = _git("diff", "-w", meta["alpha"], meta["omega"],
-                     root=meta["root"])
+            w = delta_text(meta, "-w")
             survives: dict[str, int] = {}
             for _, path, _l in change_lines(w):
                 survives[path] = survives.get(path, 0) + 1
@@ -856,6 +896,7 @@ def artifact_data(yaml_path: str) -> dict:
     return {
         "mode": meta["mode"], "repo": field("repo"), "title": field("title"),
         "ref": field("ref"), "alpha": meta["alpha"], "omega": meta["omega"],
+        "tests_dropped": TESTS if meta["tests"] == "skip" else None,
         "coverage": {"claimed": cov["claimed"], "total": cov["total"],
                      "unit": cov["unit"], "stale": cov["stale"]},
         "story": _story(text), "claims": parse_claims(text),
@@ -957,6 +998,7 @@ def campaign_artifact_data(camp_path: str) -> dict:
             c["member"] = m["name"]
             c["root"] = m["root"]
             c["alpha"], c["omega"] = meta["alpha"], meta["omega"]
+            c["tests_dropped"] = TESTS if meta["tests"] == "skip" else None
             claims.append(c)
         legs = mstory["walk"] or [{"id": c["id"].split(":", 1)[1], "why": ""}
                                   for c in mclaims]
@@ -970,6 +1012,7 @@ def campaign_artifact_data(camp_path: str) -> dict:
         "mode": "campaign", "repo": camp["name"],
         "title": camp["title"] or camp["name"], "ref": "",
         "alpha": None, "omega": None,
+        "tests_dropped": None,
         "coverage": {"claimed": claimed, "total": total,
                      "unit": units.pop() if len(units) == 1 else "claimed",
                      "stale": [f"{r['name']}: {s}" for r in mrows

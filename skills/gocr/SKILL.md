@@ -1,7 +1,7 @@
 ---
 name: gocr
 description: |
-  Graph-Oriented Code Review — generates a interactive story-deck report. It runs in two modes: change mode reviews a commit/branch/PR (gate = every changed line claimed) and explore mode maps a codebase territory at one pinned sha (gate = every scope file cited). Use when the user says "gocr", "gocr this commit/branch/PR", "gocr explore <area>", "gocr serve", "generate a claim review", "graph review", "map this subsystem with gocr", or wants a change reviewed by claims instead of by reading the raw diff.
+  Graph-Oriented Code Review — generates a interactive story-deck report. It runs in two modes: change mode reviews a commit/branch/PR (gate = every changed line claimed) and explore mode maps a codebase territory at one pinned sha (gate = every scope file cited). Test files are skipped in both modes unless the user asks for them. Use when the user says "gocr", "gocr this commit/branch/PR", "gocr explore <area>", "gocr serve", "generate a claim review", "graph review", "map this subsystem with gocr", or wants a change reviewed by claims instead of by reading the raw diff.
 ---
 
 # GOCR — claim-based review of one change
@@ -14,6 +14,9 @@ and comment on.
 To do this a fresh agent (never the code's author) figures out what the
 change claims to do, anchors every claim to live-resolvable evidence,
 and a hard **coverage gate** proves no changed line went unexamined.
+Test files are left out of the review by default, in both modes; a
+user who wants them reviewed says so, and that request travels to the
+Conductor as a directive like any other.
 Humans walk the claims in an interactive slide deck, check the evidence,
 and provide their feedback. The artifact stores recipes, never results —
 everything resolves live against pinned git shas, so nothing in it can

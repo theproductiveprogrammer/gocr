@@ -24,6 +24,9 @@ Two modes:
 - **explore** — map a codebase territory at one sha (onboarding docs
   that can prove their own coverage). Gate: every scope file cited.
 
+Test files are skipped in both modes by default (`tests: review` in
+the header puts them back).
+
 ## Install
 
 Claude Code plugin (official channel):
